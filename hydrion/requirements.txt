@@ -1,7 +1,0 @@
-gymnasium
-numpy
-pyyaml
-stable-baselines3
-matplotlib
-pandas
-pygame

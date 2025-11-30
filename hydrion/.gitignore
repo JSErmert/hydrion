@@ -1,9 +1,0 @@
-__pycache__/
-*.pyc
-.venv/
-env/
-data/
-models/
-.ipynb_checkpoints/
-.DS_Store
-Thumbs.db
