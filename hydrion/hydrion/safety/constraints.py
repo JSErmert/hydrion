@@ -1,0 +1,1 @@
+class SafetyLimits: pass

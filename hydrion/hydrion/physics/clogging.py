@@ -1,0 +1,1 @@
+class CloggingModel: pass

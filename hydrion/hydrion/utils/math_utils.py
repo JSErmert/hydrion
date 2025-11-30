@@ -1,0 +1,1 @@
+def safe_clip(x,a,b): return max(a,min(b,x))
