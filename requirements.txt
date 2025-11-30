@@ -1,7 +1,21 @@
-gymnasium
+# Core scientific stack
 numpy
-pyyaml
-stable-baselines3
-matplotlib
+scipy
 pandas
-pygame
+pyyaml
+
+# Reinforcement Learning
+gymnasium>=0.29.1
+stable-baselines3[extra]>=2.1.0
+tensorboard
+protobuf==3.20.*     # stable-baselines3 safety pin
+
+# Optical Sensors (needed for camera-like pipelines)
+opencv-python
+scikit-image
+
+# Visualization (only what's actually used)
+matplotlib
+
+# Simulation helper (optional but recommended)
+tqdm
