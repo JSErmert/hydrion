@@ -8,7 +8,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 
 from hydrion.env import HydrionEnv
 
-DEFAULT_MODEL_PATH = "ppo_hydrion_final_12d.zip"
+DEFAULT_MODEL_PATH = "ppo_hydrion_final_v3.zip"
 
 
 def make_env():

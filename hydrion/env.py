@@ -16,34 +16,15 @@ from .sensors.optical import OpticalSensorArray
 
 class HydrionEnv(gym.Env):
     """
-    HydrionEnv v3.0 — Multi-Physics Digital Twin Environment
+    HydrionEnv v3.1 — Multi-Physics Digital Twin Environment
 
     Includes:
     - Hydraulics
     - Clogging
     - Electrostatics (E-field)
-    - Particle transport (C_in, C_out, capture efficiency)
+    - Particle transport (5-bin + charge)
+    - Polarization stage (maps to visualization + ES boost)
     - Optical sensor array (turbidity, scatter)
-    - Full 12-dimensional observation vector for PPO
-
-    obs = [
-        flow,
-        pressure,
-        clog,
-
-        E_norm,
-
-        C_out,
-        particle_capture_eff,
-
-        valve_cmd,
-        pump_cmd,
-        bf_cmd,
-        node_voltage_cmd,
-
-        sensor_turbidity,
-        sensor_scatter
-    ]
     """
 
     metadata = {"render_modes": ["human"]}
@@ -100,6 +81,7 @@ class HydrionEnv(gym.Env):
             "bf_cmd": 0.0,
             "node_voltage_cmd": 0.5,
 
+            # Hydraulics raw
             "Q_out_Lmin": 0.0,
             "P_in": 0.0,
             "P_m1": 0.0,
@@ -107,9 +89,13 @@ class HydrionEnv(gym.Env):
             "P_m3": 0.0,
             "P_out": 0.0,
 
+            # Normalized overview
             "flow": 0.5,
             "pressure": 0.4,
             "clog": 0.0,
+
+            # New stage
+            "polarization_level": 0.0,
         }
 
         # Reset subsystems
@@ -119,12 +105,21 @@ class HydrionEnv(gym.Env):
         self.particles.reset(self.state)
         self.sensors.reset(self.state)
 
-        # Neutral kick
+        # Neutral kick to establish initial E_norm + charge
         neutral = np.array([0.5, 0.5, 0.0, 0.5], dtype=np.float32)
 
         self.hydraulics.update(self.state, dt=self.dt, action=neutral, clogging_model=self.clogging)
         self.electrostatics.update(self.state, dt=self.dt, node_cmd=self.state["node_voltage_cmd"])
-        self.particles.update(self.state, dt=self.dt, clogging_model=self.clogging, electrostatics_model=self.electrostatics)
+
+        # New: Polarization set equal to E_norm for v1
+        self.state["polarization_level"] = float(self.state.get("E_norm", 0.0))
+
+        self.particles.update(
+            self.state,
+            dt=self.dt,
+            clogging_model=self.clogging,
+            electrostatics_model=self.electrostatics,
+        )
         self.sensors.update(self.state, dt=self.dt)
 
         self._update_normalized_state()
@@ -145,7 +140,7 @@ class HydrionEnv(gym.Env):
         self.state["node_voltage_cmd"] = float(action[3])
 
         # Physics order:
-        # Hydraulics → Clogging → Electrostatics → Particles → Optical
+        # Hydraulics → Clogging → Electrostatics → Polarization → Particles → Optical
         self.hydraulics.update(
             state=self.state,
             dt=self.dt,
@@ -154,7 +149,16 @@ class HydrionEnv(gym.Env):
         )
         self.clogging.update(self.state, dt=self.dt)
         self.electrostatics.update(self.state, dt=self.dt, node_cmd=self.state["node_voltage_cmd"])
-        self.particles.update(self.state, dt=self.dt, clogging_model=self.clogging, electrostatics_model=self.electrostatics)
+
+        # NEW: polarization stage
+        self.state["polarization_level"] = float(self.state.get("E_norm", 0.0))
+
+        self.particles.update(
+            self.state,
+            dt=self.dt,
+            clogging_model=self.clogging,
+            electrostatics_model=self.electrostatics,
+        )
         self.sensors.update(self.state, dt=self.dt)
 
         self._update_normalized_state()
@@ -163,6 +167,7 @@ class HydrionEnv(gym.Env):
         pressure = float(self.state["pressure"])
         clog = float(self.state["clog"])
 
+        # Same reward for now (upgrade later)
         reward = 2.0 * flow - 1.0 * pressure - 0.5 * clog
 
         terminated = False
@@ -174,6 +179,7 @@ class HydrionEnv(gym.Env):
             "mesh_loading_avg": float(self.state.get("mesh_loading_avg", 0.0)),
             "capture_eff": float(self.state.get("capture_eff", 0.0)),
             "E_norm": float(self.state.get("E_norm", 0.0)),
+            "polarization_level": float(self.state.get("polarization_level", 0.0)),
             "sensor_turbidity": float(self.state.get("sensor_turbidity", 0.0)),
             "sensor_scatter": float(self.state.get("sensor_scatter", 0.0)),
         }
@@ -232,6 +238,7 @@ class HydrionEnv(gym.Env):
             f"P={self.state['pressure']:.3f}, "
             f"Clog={self.state['clog']:.3f}, "
             f"E_norm={self.state.get('E_norm', 0.0):.3f}, "
+            f"Pol={self.state.get('polarization_level', 0.0):.3f}, "
             f"Turb={self.state.get('sensor_turbidity', 0.0):.3f}, "
             f"Scatter={self.state.get('sensor_scatter', 0.0):.3f}"
         )
