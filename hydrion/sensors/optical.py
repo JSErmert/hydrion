@@ -2,140 +2,115 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Any, Dict
+
 import numpy as np
 
 
 @dataclass
-class OpticalParams:
+class OpticalSensorParams:
     """
-    Optical sensor model (v2).
+    Simple optical sensor model for micro-particle detection.
 
-    Uses size-resolved particle outputs from ParticleModel v2.1:
-
-        C_out_ultra, C_out_fine, C_out_small, C_out_medium, C_out_large
-        charge_mean
-
-    Produces:
-        sensor_turbidity
-        sensor_scatter
-        camera_signal
+    Outputs (all in [0, 1]):
+        sensor_turbidity   ~ optical density / cloudiness
+        sensor_scatter     ~ scattered light intensity
+        sensor_camera      ~ normalized camera pixel mean
     """
 
-    # Weight contributions to turbidity (fine particles dominate)
-    w_ultra_turb: float = 1.20
-    w_fine_turb: float = 1.00
-    w_small_turb: float = 0.70
-    w_medium_turb: float = 0.30
-    w_large_turb: float = 0.10
+    # Reference scales
+    Q_ref_Lmin: float = 20.0   # flow at which signal is "nominal"
+    turbidity_gain_clog: float = 0.8
+    turbidity_gain_capture: float = 0.4
+    turbidity_gain_particles: float = 0.6
 
-    # Weight contributions to scatter (fibers dominate)
-    w_ultra_scat: float = 0.10
-    w_fine_scat: float = 0.25
-    w_small_scat: float = 0.70
-    w_medium_scat: float = 1.00
-    w_large_scat: float = 1.20
+    scatter_gain_flow: float = 0.4
+    scatter_gain_particles: float = 0.6
 
-    # Charge effects (adds brightness + reduces apparent turbidity)
-    charge_brightness_boost: float = 0.25
-    charge_turbidity_reduction: float = 0.15
+    # Noise
+    turbidity_noise_std: float = 0.01
+    scatter_noise_std: float = 0.01
+    camera_noise_std: float = 0.02
 
-    # Noise parameters
-    noise_turb: float = 0.02
-    noise_scat: float = 0.02
-    noise_cam: float = 0.02
-
-    eps: float = 1e-6
+    # Clamp to [0, 1]
+    eps: float = 1e-8
 
 
 class OpticalSensorArray:
-    def __init__(self, cfg: Dict[str, Any] | None = None) -> None:
-        cfg = cfg or {}
-        
-        # FIX: HydrionConfig stores data under cfg.raw
-        sensors_cfg = cfg.raw.get("sensors", {}) if hasattr(cfg, "raw") else {}
+    """
+    Optical sensor "bar" that looks at the outflow.
 
-        self.params = OpticalParams(
-            w_ultra_turb=float(sensors_cfg.get("w_ultra_turb", 1.20)),
-            w_fine_turb=float(sensors_cfg.get("w_fine_turb", 1.00)),
-            w_small_turb=float(sensors_cfg.get("w_small_turb", 0.70)),
-            w_medium_turb=float(sensors_cfg.get("w_medium_turb", 0.30)),
-            w_large_turb=float(sensors_cfg.get("w_large_turb", 0.10)),
-            w_ultra_scat=float(sensors_cfg.get("w_ultra_scat", 0.10)),
-            w_fine_scat=float(sensors_cfg.get("w_fine_scat", 0.25)),
-            w_small_scat=float(sensors_cfg.get("w_small_scat", 0.70)),
-            w_medium_scat=float(sensors_cfg.get("w_medium_scat", 1.00)),
-            w_large_scat=float(sensors_cfg.get("w_large_scat", 1.20)),
-            charge_brightness_boost=float(sensors_cfg.get("charge_brightness_boost", 0.25)),
-            charge_turbidity_reduction=float(sensors_cfg.get("charge_turbidity_reduction", 0.15)),
-            noise_turb=float(sensors_cfg.get("noise_turb", 0.02)),
-            noise_scat=float(sensors_cfg.get("noise_scat", 0.02)),
-            noise_cam=float(sensors_cfg.get("noise_cam", 0.02)),
+    Reads from env state:
+        Q_out_Lmin
+        mesh_loading_avg
+        capture_eff
+        C_out (downstream particle concentration, optional)
+
+    Writes:
+        sensor_turbidity  in [0, 1]
+        sensor_scatter    in [0, 1]
+        sensor_camera     in [0, 1]
+    """
+
+    def __init__(self, cfg: Any | None = None) -> None:
+        # Allow future config-driven params, but defaults are fine for now
+        s_raw: Dict[str, float] = {}
+        if cfg is not None and hasattr(cfg, "raw"):
+            s_raw = getattr(cfg, "raw", {}).get("sensors", {}).get("optical", {}) or {}
+
+        self.params = OpticalSensorParams(
+            Q_ref_Lmin=float(s_raw.get("Q_ref_Lmin", 20.0)),
+            turbidity_gain_clog=float(s_raw.get("turbidity_gain_clog", 0.8)),
+            turbidity_gain_capture=float(s_raw.get("turbidity_gain_capture", 0.4)),
+            turbidity_gain_particles=float(s_raw.get("turbidity_gain_particles", 0.6)),
+            scatter_gain_flow=float(s_raw.get("scatter_gain_flow", 0.4)),
+            scatter_gain_particles=float(s_raw.get("scatter_gain_particles", 0.6)),
+            turbidity_noise_std=float(s_raw.get("turbidity_noise_std", 0.01)),
+            scatter_noise_std=float(s_raw.get("scatter_noise_std", 0.01)),
+            camera_noise_std=float(s_raw.get("camera_noise_std", 0.02)),
+            eps=float(s_raw.get("eps", 1e-8)),
         )
 
-
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def reset(self, state: Dict[str, float]) -> None:
         state["sensor_turbidity"] = 0.0
         state["sensor_scatter"] = 0.0
-        state["camera_signal"] = 0.0
+        state["sensor_camera"] = 0.0
 
     def update(self, state: Dict[str, float], dt: float) -> None:
         p = self.params
 
-        # Read per-bin concentrations
-        C = {
-            "ultra": float(state.get("C_out_ultra", 0.0)),
-            "fine": float(state.get("C_out_fine", 0.0)),
-            "small": float(state.get("C_out_small", 0.0)),
-            "medium": float(state.get("C_out_medium", 0.0)),
-            "large": float(state.get("C_out_large", 0.0)),
-        }
+        Q = float(state.get("Q_out_Lmin", 0.0))
+        mesh_avg = float(state.get("mesh_loading_avg", 0.0))
+        capture_eff = float(state.get("capture_eff", 0.8))
+        C_out = float(state.get("C_out", 0.5))  # downstream particle conc in [0,1] ish
 
-        charge_mean = float(state.get("charge_mean", 0.0))
+        # Normalize flow
+        flow_norm = float(np.clip(Q / max(p.Q_ref_Lmin, p.eps), 0.0, 2.0))
 
-        # -------------------------------
-        # TURBIDITY MODEL (v2)
-        # -------------------------------
-        turb_base = (
-            p.w_ultra_turb * C["ultra"]
-            + p.w_fine_turb * C["fine"]
-            + p.w_small_turb * C["small"]
-            + p.w_medium_turb * C["medium"]
-            + p.w_large_turb * C["large"]
+        # --- Turbidity -------------------------------------------------
+        # More clogging, more particles, and *lower* capture efficiency
+        turbidity = (
+            p.turbidity_gain_clog * mesh_avg
+            + p.turbidity_gain_particles * C_out
+            + p.turbidity_gain_capture * (1.0 - capture_eff)
         )
+        turbidity = float(np.clip(turbidity + np.random.randn() * p.turbidity_noise_std, 0.0, 1.0))
 
-        # Charge makes turbidity appear lower (particles align, less scattering)
-        turb = turb_base * (1.0 - p.charge_turbidity_reduction * charge_mean)
-        turb += np.random.normal(0.0, p.noise_turb)
-        turb = float(np.clip(turb, 0.0, 1.0))
-
-        # -------------------------------
-        # SCATTER MODEL (v2)
-        # -------------------------------
-        scat = (
-            p.w_ultra_scat * C["ultra"]
-            + p.w_fine_scat * C["fine"]
-            + p.w_small_scat * C["small"]
-            + p.w_medium_scat * C["medium"]
-            + p.w_large_scat * C["large"]
+        # --- Scatter ---------------------------------------------------
+        scatter = (
+            p.scatter_gain_flow * flow_norm
+            + p.scatter_gain_particles * C_out
         )
-        scatter = scat + np.random.normal(0.0, p.noise_scat)
-        scatter = float(np.clip(scatter, 0.0, 1.0))
+        scatter = float(np.clip(scatter + np.random.randn() * p.scatter_noise_std, 0.0, 1.0))
 
-        # -------------------------------
-        # CAMERA SIGNAL (v2)
-        # -------------------------------
-        # Bright scatter increases camera activity
-        # High turbidity darkens image
-        # Charge adds subtle emissive brightness (for your glowing particles)
-        camera_signal = (
-            0.6 * scatter
-            + 0.4 * (1.0 - turb)
-            + p.charge_brightness_boost * charge_mean
-        )
-        camera_signal += np.random.normal(0.0, p.noise_cam)
-        camera_signal = float(np.clip(camera_signal, 0.0, 1.0))
+        # --- Camera "pixel mean" --------------------------------------
+        # Think of this as a fused brightness + turbidity metric
+        camera = 0.5 * scatter + 0.5 * (1.0 - turbidity)
+        camera = float(np.clip(camera + np.random.randn() * p.camera_noise_std, 0.0, 1.0))
 
-        state["sensor_turbidity"] = turb
+        state["sensor_turbidity"] = turbidity
         state["sensor_scatter"] = scatter
-        state["camera_signal"] = camera_signal
+        state["sensor_camera"] = camera
