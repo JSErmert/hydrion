@@ -1,18 +1,16 @@
 # hydrion/make_video.py
 """
-Hydrion Digital Twin — Vertical Reactor Video Generator (MP4)
+Hydrion Digital Twin — Cinematic Renderer v10 (Scientific Edition)
 
-- Loads trained PPO model + VecNormalize stats
-- Runs one evaluation episode in HydrionEnv
-- Builds a vertical “reactor column” visualization matching the
-  Comprehensive Design:
-    * Water inflow at top
-    * Polarize layer
-    * Tri-Layer Electric Node Extraction
-    * Sensor live feedback
-    * Storage chamber + up-cycling drain
-    * Water outflow at bottom
-- Animates 3 particle-size groups as colored dots.
+- Preserves v8's scientifically faithful dynamics and coordinates
+- Uses your cinematic artwork as the background
+- 30 fps, 30-second research-realistic render
+- Visual enhancements are *driven by physics* (e_norm, capture_eff, clog),
+  not arbitrary cosmetics:
+    * Particle core + glow layers (depth-like effect)
+    * Glow intensity tied to electrostatic field + capture efficiency
+    * Pipe field-bar illumination tied to e_norm
+    * Subtle lab-like aesthetic while maintaining full realism
 
 Run from project root:
 
@@ -20,20 +18,21 @@ Run from project root:
 
 Output:
 
-    videos/hydrion_run.mp4
+    videos/hydrion_run_v10.mp4
 
 Requires: ffmpeg installed and on PATH.
 """
 
 from __future__ import annotations
-
 import os
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
-from matplotlib.patches import Rectangle, Circle, FancyBboxPatch
+import matplotlib.image as mpimg
+from matplotlib.patches import Rectangle
+import matplotlib.colors as mcolors
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
@@ -41,42 +40,44 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from .env import HydrionEnv
 
 
-# ---------------------------------------------------------------------
-#  CONFIG
-# ---------------------------------------------------------------------
+# ============================================================
+# PATHS / CONSTANTS
+# ============================================================
 
-MODEL_PATH = "ppo_hydrion_final_12d.zip"
-VECNORM_PATH = "ppo_hydrion_vecnormalize_12d.pkl"
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 
-VIDEO_DIR = "videos"
-VIDEO_PATH = os.path.join(VIDEO_DIR, "hydrion_run.mp4")
+CHECKPOINTS_DIR = os.path.join(ROOT_DIR, "checkpoints")
+VIDEOS_DIR = os.path.join(ROOT_DIR, "videos")
+os.makedirs(VIDEOS_DIR, exist_ok=True)
 
-MAX_STEPS = 6000            # max episode steps
-TARGET_FRAMES = 800         # 600–1000 as requested
+DEFAULT_MODEL = "ppo_hydrion_final_12d.zip"
+MODEL_PATH = os.path.join(CHECKPOINTS_DIR, DEFAULT_MODEL)
+VECNORM_PATH = os.path.join(ROOT_DIR, "ppo_hydrion_vecnormalize_final_12d.pkl")
 
-# Particle groups (different sizes & colors)
-N_BIG = 200     # ~500 µm
-N_MED = 300     # ~100 µm
-N_SMALL = 500   # ~5 µm
-NUM_PARTICLES = N_BIG + N_MED + N_SMALL
+BACKGROUND_PATH = os.path.join(PKG_DIR, "images", "visual_background.png")
+
+FPS = 30
+VIDEO_SECONDS = 30.0
+N_FRAMES = int(FPS * VIDEO_SECONDS)
+DT_VIS = 1.0 / FPS
+
+VIDEO_PATH = os.path.join(VIDEOS_DIR, "hydrion_run_v10.mp4")
 
 
-# ---------------------------------------------------------------------
-#  ENV + MODEL LOADING
-# ---------------------------------------------------------------------
-
+# ============================================================
+# ENV + MODEL LOADING
+# ============================================================
 
 def make_env():
-    """Factory for a fresh HydrionEnv (used by DummyVecEnv)."""
     def _init():
         return HydrionEnv()
     return _init
 
 
-def load_model_and_env() -> Tuple[PPO, VecNormalize]:
-    """Load PPO + VecNormalize with the correct HydrionEnv backend."""
+def load_model_and_env():
     if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError(f"Missing trained model: {MODEL_PATH}")
+        raise FileNotFoundError(f"Missing PPO checkpoint: {MODEL_PATH}")
     if not os.path.exists(VECNORM_PATH):
         raise FileNotFoundError(f"Missing VecNormalize stats: {VECNORM_PATH}")
 
@@ -89,597 +90,441 @@ def load_model_and_env() -> Tuple[PPO, VecNormalize]:
     return model, vec_env
 
 
-# ---------------------------------------------------------------------
-#  ROLLOUT EPISODE
-# ---------------------------------------------------------------------
+# ============================================================
+# ROLLOUT EPISODE
+# ============================================================
 
-
-def rollout_episode(
-    vec_env: VecNormalize,
-    model: PPO,
-    max_steps: int = MAX_STEPS,
-) -> Dict[str, np.ndarray]:
-    """
-    Roll out a single episode with the trained policy and record:
-    - obs[t, 12]
-    - actions[t, 4]
-    - rewards[t]
-    """
+def rollout_for_animation(model: PPO, vec_env: VecNormalize, max_frames: int):
     obs = vec_env.reset()
+    obs_hist: List[np.ndarray] = []
+    rew_hist: List[float] = []
 
-    obs_hist = []
-    act_hist = []
-    rew_hist = []
-
-    for t in range(max_steps):
+    for _ in range(max_frames):
         action, _ = model.predict(obs, deterministic=True)
-        next_obs, reward, dones, infos = vec_env.step(action)
+        next_obs, reward, done, info = vec_env.step(action)
 
         obs_hist.append(next_obs[0].copy())
-        act_hist.append(action[0].copy())
         rew_hist.append(float(reward[0]))
 
         obs = next_obs
-        if dones[0]:
-            break
-
-    obs_arr = np.asarray(obs_hist, dtype=np.float32)
-    act_arr = np.asarray(act_hist, dtype=np.float32)
-    rew_arr = np.asarray(rew_hist, dtype=np.float32)
-
-    return {"obs": obs_arr, "actions": act_arr, "rewards": rew_arr}
-
-
-# ---------------------------------------------------------------------
-#  PARTICLE FIELD (VISUAL ONLY)
-# ---------------------------------------------------------------------
-
-
-def init_particles() -> Dict[str, np.ndarray]:
-    """
-    Initialize particle positions within cylinder coordinates.
-
-    We use normalized coordinates:
-        x in [0, 1] (horizontal)
-        y in [0, 1] (vertical, 1 = top, 0 = bottom)
-    The reactor body will be drawn within x ~ [0.2, 0.8].
-    """
-    # Slightly random distribution near top half
-    x_all = np.random.uniform(0.3, 0.7, size=NUM_PARTICLES)
-    y_all = np.random.uniform(0.6, 1.0, size=NUM_PARTICLES)
-
-    # Split into size groups
-    big_idx = np.arange(0, N_BIG)
-    med_idx = np.arange(N_BIG, N_BIG + N_MED)
-    small_idx = np.arange(N_BIG + N_MED, NUM_PARTICLES)
+        if bool(done[0]):
+            obs = vec_env.reset()
 
     return {
-        "pos": np.stack([x_all, y_all], axis=-1),
-        "big_idx": big_idx,
-        "med_idx": med_idx,
-        "small_idx": small_idx,
+        "obs": np.stack(obs_hist, axis=0),
+        "reward": np.array(rew_hist, dtype=np.float32),
     }
 
 
-def update_particles(
-    positions: np.ndarray,
-    obs_t: np.ndarray,
-    dt_vis: float = 1.0 / 30.0,
-) -> np.ndarray:
-    """
-    Update particle positions based on current observation.
+# ============================================================
+# PARTICLE FIELD + MOTION (v8 physics, with your alignment)
+# ============================================================
 
-    Uses:
-        obs_t[0] -> flow (0–1)
-        obs_t[3] -> E_norm (0–1)
-    """
+REACTOR_X_MIN = 0.33
+REACTOR_X_MAX = 0.67
+
+INFLOW_Y_MIN = 0.18
+INFLOW_Y_MAX = 0.27
+
+# Your aligned meshes:
+# - Top assembly pushed down the most
+# - Middle medium
+# - Bottom a little
+# (remember: larger y = lower on the image)
+MESH_CENTERS_Y = np.array([0.420, 0.515, 0.610])
+MESH_SLOPE_DEG = 6.5
+MESH_THETA = np.deg2rad(MESH_SLOPE_DEG)
+MESH_TAN = np.tan(MESH_THETA)
+MESH_CENTER_X = 0.50
+MESH_BAND = 0.012
+
+PIPE_X = 0.757
+PIPE_ENTRY_X = 0.73
+PIPE_TOP_Y = 0.34
+PIPE_BOTTOM_Y = 0.77
+
+BASE_FALL = 0.060
+FLOW_GAIN = 0.23
+CURVE_STRENGTH = 0.38
+SLIDE_SPEED = 0.22
+PIPE_SPEED = 0.30
+
+# Slightly refined jitter for research-realistic but not messy motion
+JITTER_SCALE = 0.0018
+
+
+def init_particle_positions(
+    n_big: int = 220,
+    n_med: int = 320,
+    n_small: int = 440,
+):
+    rng = np.random.default_rng(42)
+
+    def rand_group(n: int):
+        xs = rng.uniform(REACTOR_X_MIN, REACTOR_X_MAX, size=n)
+        ys = rng.uniform(INFLOW_Y_MIN, INFLOW_Y_MAX, size=n)
+        return np.stack([xs, ys], axis=1)
+
+    return {
+        "big": rand_group(n_big),
+        "med": rand_group(n_med),
+        "small": rand_group(n_small),
+    }
+
+
+def update_particles(positions: np.ndarray, obs_t: np.ndarray, group: str, dt_vis: float):
+    # Physics identical to v8: do not touch core logic
+    if obs_t.ndim != 1:
+        obs_t = obs_t.ravel()
 
     flow = float(obs_t[0])
+    clog = float(obs_t[2])
     e_norm = float(obs_t[3])
+    capture_eff = float(obs_t[5])
 
-    # Downward advection speed (y decreases)
-    vy = (0.05 + 0.25 * flow) * dt_vis
+    if group == "big":
+        target_mesh_idx = 0
+    elif group == "med":
+        target_mesh_idx = 1
+    else:
+        target_mesh_idx = 2
 
-    # Weak radial drift toward electric node region (x ~ 0.5)
-    center_x = 0.5
-    dx = center_x - positions[:, 0]
-    vx = 0.03 * e_norm * dx * dt_vis
+    x = positions[:, 0]
+    y = positions[:, 1]
 
-    # Random jitter
-    noise = np.random.normal(scale=0.01 * dt_vis, size=positions.shape)
+    # Downward drift (y increases downward because of axis inversion)
+    vy = (BASE_FALL + FLOW_GAIN * flow) * dt_vis
+    y += vy
 
-    positions[:, 0] += vx + noise[:, 0]
-    positions[:, 1] -= vy + noise[:, 1]  # downward
+    # Rightward curvature into the pipe region
+    depth = np.clip((y - INFLOW_Y_MIN) / (PIPE_BOTTOM_Y - INFLOW_Y_MIN), 0.0, 1.0)
+    vx = CURVE_STRENGTH * np.clip(e_norm, 0.0, 1.0) * depth * dt_vis
+    x += vx
 
-    # Keep within reactor cylinder horizontally
-    positions[:, 0] = np.clip(positions[:, 0], 0.28, 0.72)
+    # Mesh sliding
+    mesh_dir = np.array([np.cos(MESH_THETA), np.sin(MESH_THETA)])
 
-    # Wrap-around: particles reaching bottom re-enter near top
-    bottom_mask = positions[:, 1] < 0.05
-    positions[bottom_mask, 1] = np.random.uniform(0.8, 1.0, size=bottom_mask.sum())
-    positions[bottom_mask, 0] = np.random.uniform(0.3, 0.7, size=bottom_mask.sum())
+    base_capture = 0.3 + 0.7 * np.clip(capture_eff, 0.0, 1.0)
+    clog_factor = 1.0 - 0.4 * np.clip(clog, 0.0, 1.0)
+    strength_global = base_capture * clog_factor  # (unused but kept for clarity)
 
-    # Also clamp very top
-    positions[:, 1] = np.clip(positions[:, 1], 0.05, 0.98)
+    for i, yc in enumerate(MESH_CENTERS_Y):
+        y_line = yc + MESH_TAN * (x - MESH_CENTER_X)
+        dist = y - y_line
+        on_mesh = np.abs(dist) < MESH_BAND
 
+        if not np.any(on_mesh):
+            continue
+
+        layer_gain = 1.0 + 0.25 * i
+        strength = strength_global * layer_gain  # (kept for future use)
+
+        if i == target_mesh_idx:
+            # Snap toward the mesh line with microscopic jitter
+            noise = np.random.normal(0.0, 0.0015, size=on_mesh.sum())
+            y[on_mesh] = y_line[on_mesh] + noise
+
+            # Slide along the mesh in its direction
+            slide = SLIDE_SPEED * (0.7 + 0.4 * e_norm + 0.3 * capture_eff) * dt_vis
+            x[on_mesh] -= mesh_dir[0] * slide
+            y[on_mesh] += mesh_dir[1] * slide
+        else:
+            # Light cross-layer influence
+            slide = 0.10 * SLIDE_SPEED * dt_vis
+            x[on_mesh] -= mesh_dir[0] * slide
+            y[on_mesh] += mesh_dir[1] * slide
+
+    # Enter the vertical electrostatic pipe
+    entering = x >= PIPE_ENTRY_X
+    if np.any(entering):
+        x[entering] = PIPE_X
+        y[entering] = np.maximum(y[entering], PIPE_TOP_Y)
+
+    in_pipe = np.abs(x - PIPE_X) < 0.008
+    if np.any(in_pipe):
+        y[in_pipe] += PIPE_SPEED * dt_vis
+
+    # Respawn at inflow after passing the bottom of the pipe
+    gone = y > PIPE_BOTTOM_Y
+    if np.any(gone):
+        n = int(gone.sum())
+        x[gone] = np.random.uniform(REACTOR_X_MIN, REACTOR_X_MAX, size=n)
+        y[gone] = np.random.uniform(INFLOW_Y_MIN, INFLOW_Y_MAX, size=n)
+
+    # Micro-scale jitter to keep motion alive
+    noise = np.random.normal(scale=JITTER_SCALE * dt_vis, size=positions.shape)
+    x += noise[:, 0]
+    y += noise[:, 1]
+
+    x = np.clip(x, 0.25, 0.90)
+    y = np.clip(y, 0.05, 0.95)
+
+    positions[:, 0] = x
+    positions[:, 1] = y
     return positions
 
 
-# ---------------------------------------------------------------------
-#  FIGURE / ARTISTS (VERTICAL REACTOR)
-# ---------------------------------------------------------------------
+# ============================================================
+# COLOR / GLOW HELPERS
+# ============================================================
+
+def make_rgba(hex_color: str, alpha: float) -> Tuple[float, float, float, float]:
+    r, g, b, _ = mcolors.to_rgba(hex_color)
+    return (r, g, b, alpha)
 
 
-def create_vertical_reactor_figure() -> Tuple[plt.Figure, Dict[str, Any]]:
-    """
-    Build the Matplotlib figure + artists for a vertical reactor layout
-    matching the Comprehensive Design aesthetic.
-    """
+def modulate_color_brightness(rgba: Tuple[float, float, float, float], factor: float):
+    r, g, b, a = rgba
+    factor = float(np.clip(factor, 0.0, 2.0))
+    return (
+        np.clip(r * factor, 0.0, 1.0),
+        np.clip(g * factor, 0.0, 1.0),
+        np.clip(b * factor, 0.0, 1.0),
+        a,
+    )
+
+
+# Base colors (scientific cool palette)
+BIG_CORE_BASE = "#e8f7ff"
+MED_CORE_BASE = "#bde6ff"
+SMALL_CORE_BASE = "#8fd1ff"
+
+BIG_GLOW_BASE = "#e8f7ff"
+MED_GLOW_BASE = "#bde6ff"
+SMALL_GLOW_BASE = "#8fd1ff"
+
+
+# ============================================================
+# FIGURE / ARTISTS — BACKGROUND + PIPE FIELD BAR + GLOW
+# ============================================================
+
+def create_vertical_reactor_figure():
     plt.style.use("default")
-    fig, ax = plt.subplots(figsize=(4.5, 8))
 
-    # Dark background theme
-    fig.patch.set_facecolor("#021521")
-    ax.set_facecolor("#021521")
+    fig, ax = plt.subplots(figsize=(4.0, 6.0))
+
+    if not os.path.exists(BACKGROUND_PATH):
+        raise FileNotFoundError(f"Background image not found at: {BACKGROUND_PATH}")
+    img = mpimg.imread(BACKGROUND_PATH)
+
+    # Draw upright image (origin='lower') but flip axes so y=0 is top
+    ax.imshow(
+        img,
+        extent=(0.0, 1.0, 0.0, 1.0),
+        origin="lower",
+        aspect="auto",
+        zorder=0,
+    )
 
     ax.set_xlim(0.0, 1.0)
-    ax.set_ylim(0.0, 1.0)
-    ax.set_aspect("equal")
+    ax.set_ylim(1.0, 0.0)  # y=0 top, y=1 bottom
     ax.axis("off")
 
-    # Cylindrical reactor body (rounded top & bottom using FancyBboxPatch)
-    reactor = FancyBboxPatch(
-        (0.25, 0.08),
-        0.5,
-        0.74,
-        boxstyle="round,pad=0.02,rounding_size=0.1",
-        linewidth=2.0,
-        edgecolor="#43b3ff",
-        facecolor="#021b2b",
-    )
-    ax.add_patch(reactor)
-
-    # Polarize layer (top horizontal band)
-    polarize = Rectangle(
-        (0.27, 0.78),
-        0.46,
-        0.03,
-        linewidth=1.5,
-        edgecolor="#ffcc4d",
-        facecolor="#ffcc4d",
-        alpha=0.8,
-    )
-    ax.add_patch(polarize)
-
-    # Tri-layer electric node extraction zone (rectangle with cross-hatch)
-    node_zone = Rectangle(
-        (0.30, 0.35),
-        0.40,
-        0.26,
-        linewidth=1.5,
-        edgecolor="#ffb347",
-        facecolor="#102235",
-        hatch="xxx",
-        alpha=1.0,
-    )
-    ax.add_patch(node_zone)
-
-    # Three electrode rings along side of node zone
-    electrode_nodes = []
-    node_ys = [0.56, 0.48, 0.40]
-    for y in node_ys:
-        c = Circle((0.73, y), 0.02, edgecolor="#ffcc4d",
-                   facecolor="#ffcc4d", alpha=0.8)
-        ax.add_patch(c)
-        electrode_nodes.append(c)
-
-    # Storage chamber below node zone
-    storage = Rectangle(
-        (0.30, 0.14),
-        0.40,
-        0.18,
-        linewidth=1.5,
-        edgecolor="#ffb347",
-        facecolor="#052438",
-        alpha=1.0,
-    )
-    ax.add_patch(storage)
-
-    # Up-cycling drain (side box + pipe)
-    drain_box = Rectangle(
-        (0.70, 0.20),
-        0.16,
-        0.10,
-        linewidth=1.0,
-        edgecolor="#ffb347",
-        facecolor="#052438",
-    )
-    ax.add_patch(drain_box)
-
-    drain_pipe = Rectangle(
-        (0.66, 0.23),
+    # Field visualization around the electrostatic pipe (subtle blue column)
+    field_height = PIPE_BOTTOM_Y - PIPE_TOP_Y
+    pipe_field_bar = Rectangle(
+        (PIPE_X - 0.02, PIPE_TOP_Y),
         0.04,
-        0.04,
-        linewidth=0.5,
-        edgecolor="#ffb347",
-        facecolor="#ffb347",
-        alpha=0.8,
+        field_height,
+        linewidth=0.0,
+        facecolor="#66d9ff",
+        alpha=0.0,  # dynamically modulated by e_norm
+        zorder=2,
     )
-    ax.add_patch(drain_pipe)
+    ax.add_patch(pipe_field_bar)
 
-    # Sensor feedback icon above node zone (red)
-    sensor_circle = Circle(
-        (0.72, 0.73),
-        0.03,
-        edgecolor="#ff5959",
-        facecolor="#ff5959",
-        alpha=0.9,
-    )
-    ax.add_patch(sensor_circle)
+    # Core particles (foreground)
+    scat_big_core = ax.scatter([], [], s=20, color=BIG_CORE_BASE, alpha=0.90, zorder=6)
+    scat_med_core = ax.scatter([], [], s=13, color=MED_CORE_BASE, alpha=0.88, zorder=6)
+    scat_small_core = ax.scatter([], [], s=8, color=SMALL_CORE_BASE, alpha=0.86, zorder=6)
 
-    # Concentric halos for sensor
-    sensor_halos = []
-    for r in [0.045, 0.065]:
-        halo = Circle(
-            (0.72, 0.73),
-            r,
-            edgecolor="#ff5959",
-            facecolor="none",
-            linewidth=1.0,
-            alpha=0.5,
-        )
-        ax.add_patch(halo)
-        sensor_halos.append(halo)
+    # Glow particles (larger, softer, depth-like effect)
+    scat_big_glow = ax.scatter([], [], s=60, color=BIG_GLOW_BASE, alpha=0.25, zorder=5)
+    scat_med_glow = ax.scatter([], [], s=45, color=MED_GLOW_BASE, alpha=0.22, zorder=5)
+    scat_small_glow = ax.scatter([], [], s=32, color=SMALL_GLOW_BASE, alpha=0.20, zorder=5)
 
-    # Water inflow (droplet at top)
-    inflow_drop = Circle(
-        (0.50, 0.92),
-        0.018,
-        edgecolor="#4dd0ff",
-        facecolor="#4dd0ff",
-    )
-    ax.add_patch(inflow_drop)
-
-    # Water outflow droplet at bottom
-    outflow_drop = Circle(
-        (0.50, 0.04),
-        0.018,
-        edgecolor="#4dd0ff",
-        facecolor="#4dd0ff",
-    )
-    ax.add_patch(outflow_drop)
-
-    # Particle scatter (all groups; colored by size later)
-    particle_scatter_big = ax.scatter([], [], s=18, color="#ffdd55", alpha=0.8)
-    particle_scatter_med = ax.scatter([], [], s=10, color="#ff9b42", alpha=0.8)
-    particle_scatter_small = ax.scatter([], [], s=6, color="#ffc4a3", alpha=0.9)
-
-    # Text labels (yellow/white)
-    title = ax.text(
-        0.50,
-        0.97,
-        "Hydrion Comprehensive Design — Digital Twin",
-        ha="center",
-        va="top",
-        color="#ffffff",
-        fontsize=11,
-    )
-    label_polarize = ax.text(
-        0.50,
-        0.82,
-        "Polarize Layer",
-        ha="center",
-        va="bottom",
-        color="#ffcc4d",
-        fontsize=8,
-    )
-    label_node = ax.text(
-        0.50,
-        0.63,
-        "Tri-Layer Electric Node Extraction",
-        ha="center",
-        va="bottom",
-        color="#ffb347",
-        fontsize=8,
-    )
-    label_storage = ax.text(
-        0.50,
-        0.14,
-        "Storage Chamber",
-        ha="center",
-        va="top",
-        color="#ffb347",
-        fontsize=8,
-    )
-    label_upcycle = ax.text(
-        0.78,
-        0.31,
-        "Up-cycling\nDrain",
-        ha="center",
-        va="top",
-        color="#ffb347",
-        fontsize=7,
-    )
-    label_sensor = ax.text(
-        0.72,
-        0.77,
-        "Sensor\nLive Feedback",
-        ha="center",
-        va="bottom",
-        color="#ff5959",
-        fontsize=7,
-    )
-    label_inflow = ax.text(
-        0.50,
-        0.93,
-        "Water Inflow",
-        ha="center",
-        va="bottom",
-        color="#4dd0ff",
-        fontsize=8,
-    )
-    label_outflow = ax.text(
-        0.50,
-        0.00,
-        "Water Outflow",
-        ha="center",
-        va="bottom",
-        color="#4dd0ff",
-        fontsize=8,
-    )
-
-    # HUD metrics on left/right
-    text_flow = ax.text(
-        0.02,
-        0.96,
-        "",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#ffcc4d",
-    )
-    text_pressure = ax.text(
-        0.02,
-        0.92,
-        "",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#ffcc4d",
-    )
-    text_clog = ax.text(
-        0.02,
-        0.88,
-        "",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#ffcc4d",
-    )
-    text_e = ax.text(
-        0.02,
-        0.84,
-        "",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#ffb347",
-    )
-    text_turb = ax.text(
-        0.70,
-        0.96,
-        "",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#ff5959",
-    )
-    text_scatter = ax.text(
-        0.70,
-        0.92,
-        "",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#ff5959",
-    )
-    text_step = ax.text(
-        0.70,
-        0.88,
-        "",
-        transform=ax.transAxes,
-        fontsize=8,
-        color="#ffffff",
-    )
-
-    artists = {
+    return fig, {
         "ax": ax,
-        "reactor": reactor,
-        "polarize": polarize,
-        "node_zone": node_zone,
-        "electrode_nodes": electrode_nodes,
-        "storage": storage,
-        "drain_box": drain_box,
-        "drain_pipe": drain_pipe,
-        "sensor_circle": sensor_circle,
-        "sensor_halos": sensor_halos,
-        "inflow_drop": inflow_drop,
-        "outflow_drop": outflow_drop,
-        "particle_scatter_big": particle_scatter_big,
-        "particle_scatter_med": particle_scatter_med,
-        "particle_scatter_small": particle_scatter_small,
-        "text_flow": text_flow,
-        "text_pressure": text_pressure,
-        "text_clog": text_clog,
-        "text_e": text_e,
-        "text_turb": text_turb,
-        "text_scatter": text_scatter,
-        "text_step": text_step,
+        "pipe_field_bar": pipe_field_bar,
+        "scat_big_core": scat_big_core,
+        "scat_med_core": scat_med_core,
+        "scat_small_core": scat_small_core,
+        "scat_big_glow": scat_big_glow,
+        "scat_med_glow": scat_med_glow,
+        "scat_small_glow": scat_small_glow,
     }
 
-    return fig, artists
 
+# ============================================================
+# ANIMATION
+# ============================================================
 
-# ---------------------------------------------------------------------
-#  ANIMATION CONSTRUCTION
-# ---------------------------------------------------------------------
-
-
-def build_animation(history: Dict[str, np.ndarray]) -> animation.FuncAnimation:
-    """
-    Given rollout history, construct the vertical reactor animation.
-    """
-    obs = history["obs"]        # [T, 12]
-    rewards = history["rewards"]
-    T = obs.shape[0]
-
-    stride = max(1, T // TARGET_FRAMES)
-    frame_indices = np.arange(0, T, stride)
-    n_frames = len(frame_indices)
+def build_animation(history: Dict[str, np.ndarray]):
+    obs_hist = history["obs"]
 
     fig, artists = create_vertical_reactor_figure()
+    ax = artists["ax"]
 
-    particles = init_particles()
-    pos = particles["pos"]
-    big_idx = particles["big_idx"]
-    med_idx = particles["med_idx"]
-    small_idx = particles["small_idx"]
+    pipe_field_bar = artists["pipe_field_bar"]
 
-    scat_big = artists["particle_scatter_big"]
-    scat_med = artists["particle_scatter_med"]
-    scat_small = artists["particle_scatter_small"]
+    pos = init_particle_positions()
 
-    storage = artists["storage"]
-    sensor_circle = artists["sensor_circle"]
-    sensor_halos = artists["sensor_halos"]
-    electrode_nodes = artists["electrode_nodes"]
+    scat_big_core = artists["scat_big_core"]
+    scat_med_core = artists["scat_med_core"]
+    scat_small_core = artists["scat_small_core"]
 
-    text_flow = artists["text_flow"]
-    text_pressure = artists["text_pressure"]
-    text_clog = artists["text_clog"]
-    text_e = artists["text_e"]
-    text_turb = artists["text_turb"]
-    text_scatter = artists["text_scatter"]
-    text_step = artists["text_step"]
+    scat_big_glow = artists["scat_big_glow"]
+    scat_med_glow = artists["scat_med_glow"]
+    scat_small_glow = artists["scat_small_glow"]
 
-    # Running estimate of captured fraction for storage fill
-    captured_fill = 0.0
+    # Precompute RGBA base colors
+    big_core_rgba = make_rgba(BIG_CORE_BASE, alpha=0.90)
+    med_core_rgba = make_rgba(MED_CORE_BASE, alpha=0.88)
+    small_core_rgba = make_rgba(SMALL_CORE_BASE, alpha=0.86)
+
+    big_glow_rgba = make_rgba(BIG_GLOW_BASE, alpha=0.25)
+    med_glow_rgba = make_rgba(MED_GLOW_BASE, alpha=0.22)
+    small_glow_rgba = make_rgba(SMALL_GLOW_BASE, alpha=0.20)
 
     def init():
-        scat_big.set_offsets(np.empty((0, 2)))
-        scat_med.set_offsets(np.empty((0, 2)))
-        scat_small.set_offsets(np.empty((0, 2)))
-        return [scat_big, scat_med, scat_small]
+        # Initial positions
+        scat_big_core.set_offsets(pos["big"])
+        scat_med_core.set_offsets(pos["med"])
+        scat_small_core.set_offsets(pos["small"])
 
-    def animate(frame_idx: int):
-        nonlocal pos, captured_fill
+        scat_big_glow.set_offsets(pos["big"])
+        scat_med_glow.set_offsets(pos["med"])
+        scat_small_glow.set_offsets(pos["small"])
 
-        step = int(frame_indices[frame_idx])
-        o = obs[step]
+        # Initial optical state
+        scat_big_core.set_facecolor(big_core_rgba)
+        scat_med_core.set_facecolor(med_core_rgba)
+        scat_small_core.set_facecolor(small_core_rgba)
 
-        # Hydraulics/clogging
-        flow = float(o[0])
-        pressure = float(o[1])
-        clog = float(o[2])
+        scat_big_glow.set_facecolor(big_glow_rgba)
+        scat_med_glow.set_facecolor(med_glow_rgba)
+        scat_small_glow.set_facecolor(small_glow_rgba)
 
-        # Electrostatics
-        e_norm = float(o[3])
+        pipe_field_bar.set_alpha(0.0)
 
-        # Particles
-        c_out = float(o[4])
-        p_eff = float(o[5])
+        return (
+            scat_big_core,
+            scat_med_core,
+            scat_small_core,
+            scat_big_glow,
+            scat_med_glow,
+            scat_small_glow,
+            pipe_field_bar,
+        )
 
-        # Sensors
-        turbidity = float(o[10])
-        scatter_sig = float(o[11])
+    def animate(frame: int):
+        obs = obs_hist[min(frame, obs_hist.shape[0] - 1)]
 
-        # Update particle field
-        pos = update_particles(pos, o)
-        scat_big.set_offsets(pos[big_idx])
-        scat_med.set_offsets(pos[med_idx])
-        scat_small.set_offsets(pos[small_idx])
+        # Extract key physical signals for visual encoding
+        flow = float(obs[0])
+        clog = float(obs[2])
+        e_norm = float(obs[3])
+        capture_eff = float(obs[5])
 
-        # Simulate captured fraction slowly increasing with p_eff
-        captured_fill = min(1.0, captured_fill + 0.01 * p_eff)
-        # Storage chamber color shifts with captured fraction
-        base_color = np.array([0.02, 0.15, 0.28])
-        capture_color = np.array([1.0, 0.72, 0.28])
-        mix = base_color * (1 - captured_fill) + capture_color * captured_fill
-        mix = np.clip(mix, 0.0, 1.0)
-        storage.set_facecolor(mix)
+        e_level = float(np.clip(e_norm, 0.0, 1.0))
+        capture_level = float(np.clip(capture_eff, 0.0, 1.0))
+        clog_level = float(np.clip(clog, 0.0, 1.0))
 
-        # Electrode glow intensity from e_norm
-        glow_alpha = 0.3 + 0.6 * e_norm
-        glow_alpha = float(np.clip(glow_alpha, 0.0, 1.0))
-        glow_color = (1.0, 0.75, 0.35)
-        for node in electrode_nodes:
-            node.set_alpha(glow_alpha)
-            node.set_facecolor(glow_color)
+        # Physics update (unchanged from v8)
+        pos["big"] = update_particles(pos["big"], obs, "big", dt_vis=DT_VIS)
+        pos["med"] = update_particles(pos["med"], obs, "med", dt_vis=DT_VIS)
+        pos["small"] = update_particles(pos["small"], obs, "small", dt_vis=DT_VIS)
 
-        # Sensor brightness from turbidity & scatter
-        sensor_intensity = float(np.clip(0.3 + 0.7 * (turbidity + 0.5 * scatter_sig), 0.0, 1.0))
-        sensor_color = (sensor_intensity, 0.35 * sensor_intensity, 0.35 * sensor_intensity)
-        sensor_circle.set_facecolor(sensor_color)
-        for halo in sensor_halos:
-            halo.set_alpha(0.2 + 0.4 * sensor_intensity)
+        # Update positions
+        scat_big_core.set_offsets(pos["big"])
+        scat_med_core.set_offsets(pos["med"])
+        scat_small_core.set_offsets(pos["small"])
 
-        # HUD text
-        text_flow.set_text(f"Flow: {flow:.3f}")
-        text_pressure.set_text(f"P_in: {pressure:.3f}")
-        text_clog.set_text(f"Clog: {clog:.3f}")
-        text_e.set_text(f"E_norm: {e_norm:.3f}")
-        text_turb.set_text(f"Turbidity: {turbidity:.3f}")
-        text_scatter.set_text(f"Scatter: {scatter_sig:.3f}")
-        text_step.set_text(f"Step {step}/{T-1}  R={rewards[step]:.1f}")
+        scat_big_glow.set_offsets(pos["big"])
+        scat_med_glow.set_offsets(pos["med"])
+        scat_small_glow.set_offsets(pos["small"])
 
-        return [
-            scat_big,
-            scat_med,
-            scat_small,
-            storage,
-            sensor_circle,
-            *sensor_halos,
-            *electrode_nodes,
-            text_flow,
-            text_pressure,
-            text_clog,
-            text_e,
-            text_turb,
-            text_scatter,
-            text_step,
-        ]
+        # --- Scientific glow & color modulation ---
+
+        # Core brightness slightly increases with field & capture
+        core_intensity = 0.85 + 0.25 * (0.6 * e_level + 0.4 * capture_level)
+        # Clogging gently dims the scene
+        dim_factor = 1.0 - 0.3 * clog_level
+        core_factor = core_intensity * dim_factor
+
+        big_core_col = modulate_color_brightness(big_core_rgba, core_factor)
+        med_core_col = modulate_color_brightness(med_core_rgba, core_factor)
+        small_core_col = modulate_color_brightness(small_core_rgba, core_factor)
+
+        scat_big_core.set_facecolor(big_core_col)
+        scat_med_core.set_facecolor(med_core_col)
+        scat_small_core.set_facecolor(small_core_col)
+
+        # Glow intensity tracks capture efficiency more strongly
+        glow_intensity = 0.7 + 0.5 * capture_level
+        glow_dim = 1.0 - 0.5 * clog_level
+        glow_factor = glow_intensity * glow_dim
+
+        big_glow_col = modulate_color_brightness(big_glow_rgba, glow_factor)
+        med_glow_col = modulate_color_brightness(med_glow_rgba, glow_factor)
+        small_glow_col = modulate_color_brightness(small_glow_rgba, glow_factor)
+
+        scat_big_glow.set_facecolor(big_glow_col)
+        scat_med_glow.set_facecolor(med_glow_col)
+        scat_small_glow.set_facecolor(small_glow_col)
+
+        # Pipe field-bar alpha reflects electrostatic field strength
+        base_alpha = 0.03
+        field_alpha = base_alpha + 0.20 * e_level
+        pipe_field_bar.set_alpha(float(np.clip(field_alpha, 0.0, 0.35)))
+
+        return (
+            scat_big_core,
+            scat_med_core,
+            scat_small_core,
+            scat_big_glow,
+            scat_med_glow,
+            scat_small_glow,
+            pipe_field_bar,
+        )
 
     anim = animation.FuncAnimation(
         fig,
         animate,
         init_func=init,
-        frames=n_frames,
-        interval=33,   # ~30 FPS
+        frames=N_FRAMES,
+        interval=1000.0 / FPS,
         blit=True,
     )
+
     return anim
 
 
-# ---------------------------------------------------------------------
-#  MAIN
-# ---------------------------------------------------------------------
-
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
-    os.makedirs(VIDEO_DIR, exist_ok=True)
-
     print("Loading PPO model + environment...")
     model, vec_env = load_model_and_env()
 
-    print("Rolling out a PPO-controlled episode...")
-    history = rollout_episode(vec_env, model, max_steps=MAX_STEPS)
-    print(f"Episode length: {history['obs'].shape[0]} steps")
+    print("Rolling out PPO episode...")
+    history = rollout_for_animation(model, vec_env, N_FRAMES)
 
-    print("Building animation (vertical reactor)...")
+    print("Rendering scientific-cinematic animation (v10)...")
     anim = build_animation(history)
 
-    print(f"Saving MP4 to {VIDEO_PATH} ...")
+    print(f"Saving MP4 to: {VIDEO_PATH}")
     writer = animation.FFMpegWriter(
-        fps=30,
+        fps=FPS,
         metadata={"artist": "HydrionRL"},
-        bitrate=2400,
+        bitrate=9000,
+        codec="libx264",
+        extra_args=["-pix_fmt", "yuv420p"],
     )
     anim.save(VIDEO_PATH, writer=writer)
-    print("✅ Video saved.")
+
+    print("✅ v10 scientific cinematic video saved.")
 
 
 if __name__ == "__main__":
