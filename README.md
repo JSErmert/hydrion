@@ -1,5 +1,27 @@
 # HYDRION — Research-Grade Digital Twin & Safe RL Environment
 
+Hydrion is a modular multi-physics digital twin simulating a microfiber and microplastic extraction system.  
+It integrates hydraulic flow, mesh clogging, particle transport, electrostatic capture, optical sensing,  
+and reinforcement learning control for academic and research applications.
+
+This repository supports work in digital twins, safe reinforcement learning, filtration system development,  
+and environmental technology.
+
+Project Overview:
+
+Hydrion models the full operational sequence of a microfiber extraction device:
+
+- Water flows through a three-stage mesh filtration stack (500 → 100 → 5 µm).
+- Mesh clogging accumulates dynamically and influences pressure and flow.
+- Microplastic/microfiber concentrations evolve through capture and leakage.
+- Electrostatic nodes provide secondary capture downstream of the mesh.
+- Optical sensors simulate turbidity, scatter, and camera-based concentration.
+- A PPO reinforcement learning agent controls pump speed, valve position, backflush, and node voltage.
+- A 2D renderer produces MP4 animations illustrating system behavior.
+
+The project emphasizes physical plausibility, modular design, and reproducibility.
+
+
 HYDRION SETUP AND RUN GUIDE
 
 1. SYSTEM REQUIREMENTS
