@@ -1,6 +1,6 @@
 # hydrion/make_video.py
 """
-Hydrion Digital Twin — Vertical Reactor Video Generator (MP4)
+Hydrion Digital Twin — Video Generator (MP4)
 
 - Loads trained PPO model + VecNormalize stats
 - Runs one evaluation episode in HydrionEnv
@@ -67,14 +67,14 @@ NUM_PARTICLES = N_BIG + N_MED + N_SMALL
 
 
 def make_env():
-    """Factory for a fresh HydrionEnv (used by DummyVecEnv)."""
+    # Factory for a fresh HydrionEnv (used by DummyVecEnv)
     def _init():
         return HydrionEnv()
     return _init
 
 
 def load_model_and_env() -> Tuple[PPO, VecNormalize]:
-    """Load PPO + VecNormalize with the correct HydrionEnv backend."""
+    # Load PPO + VecNormalize with the correct HydrionEnv backend.
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"Missing trained model: {MODEL_PATH}")
     if not os.path.exists(VECNORM_PATH):

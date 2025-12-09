@@ -11,9 +11,9 @@ class CloggingParams:
     """
     Tunable parameters for the tri-mesh clogging model.
 
-    The intent is to keep this v1 model:
+    v2 model (core):
     - simple enough for fast RL rollouts
-    - but shaped so that clogging is slow at first and accelerates
+    - shaped so that clogging is slow at first and accelerates
       as the meshes approach saturation.
 
     Units:
@@ -44,7 +44,7 @@ class CloggingParams:
 
 class CloggingModel:
     """
-    CloggingModel v1
+    CloggingModel v2
 
     This class is intentionally self-contained and stateless w.r.t. RL code –
     it only talks to the environment via a shared `state` dict and a minimal
@@ -79,8 +79,7 @@ class CloggingModel:
     """
 
     def __init__(self, cfg: Any | None = None) -> None:
-        # Try to pull parameters from a HydrionConfig-like object, but also
-        # work directly with a raw dict for simplicity.
+        # Try to pull parameters from a HydrionConfig-like object, but also work directly with a raw dict for simplicity.
         c_raw: Dict[str, float] = {}
         if cfg is not None:
             if hasattr(cfg, "raw"):
@@ -157,7 +156,7 @@ class CloggingModel:
         """
         p = self.params
 
-        # --- 1. Determine the driving flow ---------------------------------
+        # 1. Determine the driving flow 
         Q_Lmin = float(
             state.get(
                 "Q_out_Lmin",
@@ -166,13 +165,13 @@ class CloggingModel:
         )
         Q_Lmin = max(Q_Lmin, 0.0)
 
-        # --- 2. Current clog masses ----------------------------------------
+        # 2. Current clog masses 
         Mc1 = float(self._state.get("Mc1", 0.0))
         Mc2 = float(self._state.get("Mc2", 0.0))
         Mc3 = float(self._state.get("Mc3", 0.0))
 
-        # --- 3. Deposition term --------------------------------------------
-        # v1: assume a unit-normalized particle concentration; this can be
+        # 3. Deposition term
+        # v2: assume a unit-normalized particle concentration; this can be
         # extended later with a ParticleModel that writes "C_fibers" into state.
         C_fibers = float(state.get("C_fibers", 1.0))
 
@@ -194,7 +193,7 @@ class CloggingModel:
         dM_dep2 = p.dep_base * Q_Lmin * C_fibers * dep_factor2 * dt
         dM_dep3 = p.dep_base * Q_Lmin * C_fibers * dep_factor3 * dt
 
-        # --- 4. Shear removal term -----------------------------------------
+        # 4. Shear removal term 
         shear_scale = (Q_Lmin / max(p.shear_Q_ref, p.eps))
         shear_scale = max(shear_scale, 0.0)
 
@@ -202,7 +201,7 @@ class CloggingModel:
         dM_shear2 = -p.shear_coeff * shear_scale * Mc2 * dt
         dM_shear3 = -p.shear_coeff * shear_scale * Mc3 * dt
 
-        # --- 5. Integrate and saturate -------------------------------------
+        # 5. Integrate and saturate
         Mc1 = np.clip(Mc1 + dM_dep1 + dM_shear1, 0.0, p.Mc1_max)
         Mc2 = np.clip(Mc2 + dM_dep2 + dM_shear2, 0.0, p.Mc2_max)
         Mc3 = np.clip(Mc3 + dM_dep3 + dM_shear3, 0.0, p.Mc3_max)
@@ -214,8 +213,8 @@ class CloggingModel:
 
         mesh_loading_avg = (n1 + n2 + n3) / 3.0
 
-        # --- 6. Effective capture efficiency -------------------------------
-        # v1: assume baseline 80% capture, rising modestly with clog level
+        # 6. Effective capture efficiency
+        # v2: assume baseline 80% capture, rising modestly with clog level
         # until saturation, where flow begins to collapse anyway.
         capture_eff = 0.80 + 0.15 * mesh_loading_avg
         capture_eff = float(np.clip(capture_eff, 0.0, 1.0))

@@ -16,7 +16,7 @@ from .sensors.optical import OpticalSensorArray
 
 class HydrionEnv(gym.Env):
     """
-    HydrionEnv v3.0 — Multi-Physics Digital Twin Environment
+    HydrionEnv v2 — Multi-Physics Digital Twin Environment
 
     Includes:
     - Hydraulics

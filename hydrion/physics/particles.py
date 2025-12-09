@@ -25,7 +25,7 @@ class ParticleParams:
 
 class ParticleModel:
     """
-    ParticleModel v1
+    ParticleModel v2
 
     Reads:
         mesh_loading_avg   from CloggingModel

@@ -31,7 +31,7 @@ class QuietCheckpointCallback(CheckpointCallback):
 
 
 # --------------------------------------------------------------
-# ENV FACTORY
+# ENV
 # --------------------------------------------------------------
 def make_env():
     def _init():
@@ -75,7 +75,7 @@ def main():
         ent_coef=0.01,
         learning_rate=3e-4,
         clip_range=0.2,
-        verbose=0,                         # 👈 QUIET MODE
+        verbose=0,                         # QUIET MODE
         tensorboard_log=tensorboard_log,
     )
 
@@ -84,14 +84,14 @@ def main():
         save_freq=10_000,
         save_path="./checkpoints/",
         name_prefix="ppo_hydrion",
-        verbose=0                          # 👈 suppress checkpoint spam
+        verbose=0                          # suppress checkpoint spam
     )
 
     # TRAINING
     model.learn(
         total_timesteps=500_000,
         callback=checkpoint_callback,
-        progress_bar=False                  # 👈 disable ASCII bar
+        progress_bar=False                  # disable ASCII bar
     )
 
     # Save final model + normalization
