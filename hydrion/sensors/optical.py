@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -40,16 +40,21 @@ class OpticalSensorArray:
     """
     Optical sensor "bar" that looks at the outflow.
 
-    Reads from env state:
+    Reads from truth_state:
         Q_out_Lmin
         mesh_loading_avg
         capture_eff
         C_out (downstream particle concentration, optional)
 
-    Writes:
+    Writes to sensor_state (Commit 3):
         sensor_turbidity  in [0, 1]
         sensor_scatter    in [0, 1]
         sensor_camera     in [0, 1]
+
+    Backwards compatible:
+    - If sensor_state is None, writes into truth_state as before.
+    - Additionally mirrors measurements into truth_state even when sensor_state is provided
+      (temporary compatibility shim; remove in a later commit once consumers are migrated).
     """
 
     def __init__(self, cfg: Any | None = None) -> None:
@@ -74,18 +79,38 @@ class OpticalSensorArray:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def reset(self, state: Dict[str, float]) -> None:
-        state["sensor_turbidity"] = 0.0
-        state["sensor_scatter"] = 0.0
-        state["sensor_camera"] = 0.0
+    def reset(self, truth_state: Dict[str, float], sensor_state: Optional[Dict[str, float]] = None) -> None:
+        """
+        Commit 3: initialize measured outputs in sensor_state if provided.
+        Backwards compatible: also sets truth_state fields.
+        """
+        target = truth_state if sensor_state is None else sensor_state
 
-    def update(self, state: Dict[str, float], dt: float) -> None:
+        target["sensor_turbidity"] = 0.0
+        target["sensor_scatter"] = 0.0
+        target["sensor_camera"] = 0.0
+
+        # Compatibility mirror (can be removed later)
+        truth_state["sensor_turbidity"] = 0.0
+        truth_state["sensor_scatter"] = 0.0
+        truth_state["sensor_camera"] = 0.0
+
+    def update(
+        self,
+        truth_state: Dict[str, float],
+        dt: float,
+        sensor_state: Optional[Dict[str, float]] = None,
+    ) -> None:
+        """
+        Commit 3: write measured outputs to sensor_state when provided.
+        Backwards compatible: if sensor_state is None, write into truth_state.
+        """
         p = self.params
 
-        Q = float(state.get("Q_out_Lmin", 0.0))
-        mesh_avg = float(state.get("mesh_loading_avg", 0.0))
-        capture_eff = float(state.get("capture_eff", 0.8))
-        C_out = float(state.get("C_out", 0.5))  # downstream particle conc in [0,1] ish
+        Q = float(truth_state.get("Q_out_Lmin", 0.0))
+        mesh_avg = float(truth_state.get("mesh_loading_avg", 0.0))
+        capture_eff = float(truth_state.get("capture_eff", 0.8))
+        C_out = float(truth_state.get("C_out", 0.5))  # downstream particle conc in [0,1] ish
 
         # Normalize flow
         flow_norm = float(np.clip(Q / max(p.Q_ref_Lmin, p.eps), 0.0, 2.0))
@@ -111,6 +136,12 @@ class OpticalSensorArray:
         camera = 0.5 * scatter + 0.5 * (1.0 - turbidity)
         camera = float(np.clip(camera + np.random.randn() * p.camera_noise_std, 0.0, 1.0))
 
-        state["sensor_turbidity"] = turbidity
-        state["sensor_scatter"] = scatter
-        state["sensor_camera"] = camera
+        target = truth_state if sensor_state is None else sensor_state
+        target["sensor_turbidity"] = turbidity
+        target["sensor_scatter"] = scatter
+        target["sensor_camera"] = camera
+
+        # Compatibility mirror (temporary)
+        truth_state["sensor_turbidity"] = turbidity
+        truth_state["sensor_scatter"] = scatter
+        truth_state["sensor_camera"] = camera

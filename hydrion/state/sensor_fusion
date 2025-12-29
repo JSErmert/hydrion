@@ -1,0 +1,36 @@
+# hydrion/sensors/sensor_fusion.py
+from __future__ import annotations
+import numpy as np
+
+
+def build_observation(truth: dict, sensors: dict) -> np.ndarray:
+    """
+    Stable 12D observation contract.
+    Truth provides normalized physics signals. Sensors provide measured signals.
+    """
+    return np.array(
+        [
+            # hydraulics (normalized values written into truth by _update_normalized_state)
+            float(truth.get("flow", 0.0)),
+            float(truth.get("pressure", 0.0)),
+            float(truth.get("clog", 0.0)),
+
+            # electrostatics
+            float(truth.get("E_norm", 0.0)),
+
+            # particle transport
+            float(truth.get("C_out", 0.0)),
+            float(truth.get("particle_capture_eff", 0.0)),
+
+            # actuator commands
+            float(truth.get("valve_cmd", 0.0)),
+            float(truth.get("pump_cmd", 0.0)),
+            float(truth.get("bf_cmd", 0.0)),
+            float(truth.get("node_voltage_cmd", 0.0)),
+
+            # optical sensors (measured)
+            float(sensors.get("sensor_turbidity", 0.0)),
+            float(sensors.get("sensor_scatter", 0.0)),
+        ],
+        dtype=np.float32,
+    )
