@@ -13,10 +13,14 @@ from .physics.electrostatics import ElectrostaticsModel
 from .physics.particles import ParticleModel
 from .sensors.optical import OpticalSensorArray
 
+# Commit 1 imports
+from .runtime.run_context import RunContext
+from .runtime.seeding import set_global_seed
+
 
 class HydrionEnv(gym.Env):
     """
-    HydrionEnv v2 — Multi-Physics Digital Twin Environment
+    HydrionEnv — Multi-Physics Digital Twin Environment
 
     Includes:
     - Hydraulics
@@ -48,14 +52,41 @@ class HydrionEnv(gym.Env):
 
     metadata = {"render_modes": ["human"]}
 
-    def __init__(self, config_path: str = "configs/default.yaml", render_mode=None):
+    def __init__(
+        self,
+        config_path: str = "configs/default.yaml",
+        render_mode=None,
+        run_context: RunContext | None = None,
+        version: str = "v1.5",
+        seed: int | None = None,
+        noise_enabled: bool | None = None,
+        auto_reset: bool = True,
+    ):
         super().__init__()
         self.render_mode = render_mode
 
         # Load YAML config
         with open(config_path, "r") as f:
-            raw_cfg = yaml.safe_load(f)
+            raw_cfg = yaml.safe_load(f) or {}
         self.cfg = HydrionConfig(raw_cfg)
+
+        # ------------------------------
+        # Commit 1: Identity + Determinism
+        # ------------------------------
+        cfg_hash = self.cfg.config_hash()
+        resolved_seed = self.cfg.get_seed(0) if seed is None else int(seed)
+        resolved_noise = self.cfg.get_noise_enabled(False) if noise_enabled is None else bool(noise_enabled)
+
+        self.run_context = run_context or RunContext.create(
+            version=version,
+            seed=resolved_seed,
+            noise_enabled=resolved_noise,
+            config_hash=cfg_hash,
+            deterministic_id=True,
+        )
+
+        # Track which seed was actually used for the most recent reset
+        self._active_seed: int = self.run_context.seed
 
         # Simulation params
         self.dt = float(self.cfg.raw.get("sim", {}).get("dt", 0.1))
@@ -79,18 +110,28 @@ class HydrionEnv(gym.Env):
         )
 
         # Observation space (12-D)
-        self.observation_space = spaces.Box(
-            low=0.0, high=1.0, shape=(12,), dtype=np.float32
-        )
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(12,), dtype=np.float32)
 
         self.steps = 0
-        self.reset()
+        if auto_reset:
+            self.reset()
 
     # ---------------------------------------------------------
     # RESET
     # ---------------------------------------------------------
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
+        # Resolve seed precedence:
+        # 1) explicit reset(seed=...)
+        # 2) run_context seed
+        resolved_seed = self.run_context.seed if seed is None else int(seed)
+        self._active_seed = resolved_seed
+
+        # Gymnasium internal seeding
+        super().reset(seed=resolved_seed)
+
+        # Commit 1: global seeding for deterministic subsystem noise (np.random in sensors)
+        set_global_seed(resolved_seed)
+
         self.steps = 0
 
         # Base state scaffold
@@ -107,6 +148,7 @@ class HydrionEnv(gym.Env):
             "P_m3": 0.0,
             "P_out": 0.0,
 
+            # normalized placeholders (will be overwritten by _update_normalized_state)
             "flow": 0.5,
             "pressure": 0.4,
             "clog": 0.0,
@@ -119,12 +161,17 @@ class HydrionEnv(gym.Env):
         self.particles.reset(self.state)
         self.sensors.reset(self.state)
 
-        # Neutral kick
+        # Neutral kick to initialize derived values
         neutral = np.array([0.5, 0.5, 0.0, 0.5], dtype=np.float32)
 
         self.hydraulics.update(self.state, dt=self.dt, action=neutral, clogging_model=self.clogging)
         self.electrostatics.update(self.state, dt=self.dt, node_cmd=self.state["node_voltage_cmd"])
-        self.particles.update(self.state, dt=self.dt, clogging_model=self.clogging, electrostatics_model=self.electrostatics)
+        self.particles.update(
+            self.state,
+            dt=self.dt,
+            clogging_model=self.clogging,
+            electrostatics_model=self.electrostatics,
+        )
         self.sensors.update(self.state, dt=self.dt)
 
         self._update_normalized_state()
@@ -135,7 +182,6 @@ class HydrionEnv(gym.Env):
     # ---------------------------------------------------------
     def step(self, action):
         self.steps += 1
-
         action = np.clip(np.asarray(action, dtype=np.float32), 0.0, 1.0)
 
         # Actuators
@@ -154,7 +200,12 @@ class HydrionEnv(gym.Env):
         )
         self.clogging.update(self.state, dt=self.dt)
         self.electrostatics.update(self.state, dt=self.dt, node_cmd=self.state["node_voltage_cmd"])
-        self.particles.update(self.state, dt=self.dt, clogging_model=self.clogging, electrostatics_model=self.electrostatics)
+        self.particles.update(
+            self.state,
+            dt=self.dt,
+            clogging_model=self.clogging,
+            electrostatics_model=self.electrostatics,
+        )
         self.sensors.update(self.state, dt=self.dt)
 
         self._update_normalized_state()
@@ -169,14 +220,24 @@ class HydrionEnv(gym.Env):
         truncated = self.steps >= self.max_steps
 
         info = {
-            "Q_out_Lmin": float(self.state["Q_out_Lmin"]),
-            "P_in": float(self.state["P_in"]),
+            "Q_out_Lmin": float(self.state.get("Q_out_Lmin", 0.0)),
+            "P_in": float(self.state.get("P_in", 0.0)),
             "mesh_loading_avg": float(self.state.get("mesh_loading_avg", 0.0)),
             "capture_eff": float(self.state.get("capture_eff", 0.0)),
             "E_norm": float(self.state.get("E_norm", 0.0)),
             "sensor_turbidity": float(self.state.get("sensor_turbidity", 0.0)),
             "sensor_scatter": float(self.state.get("sensor_scatter", 0.0)),
         }
+
+        # ------------------------------
+        # Part D (OPTIONAL but HIGHLY helpful):
+        # expose run identity for debugging now, logging later
+        # ------------------------------
+        info["run_id"] = self.run_context.run_id
+        info["version"] = self.run_context.version
+        info["seed"] = self._active_seed
+        info["noise_enabled"] = self.run_context.noise_enabled
+        info["config_hash"] = self.run_context.config_hash
 
         return self._observe(), reward, terminated, truncated, info
 
@@ -191,13 +252,10 @@ class HydrionEnv(gym.Env):
 
         self.state["flow"] = float(np.clip(Q / max(p.Q_max_Lmin, 1e-6), 0.0, 1.0))
         self.state["pressure"] = float(np.clip(P / max(p.P_max_Pa, 1e-6), 0.0, 1.0))
-        self.state["clog"] = float(
-            np.clip(self.state.get("mesh_loading_avg", 0.0), 0.0, 1.0)
-        )
+        self.state["clog"] = float(np.clip(self.state.get("mesh_loading_avg", 0.0), 0.0, 1.0))
 
     def _observe(self):
         s = self.state
-
         return np.array(
             [
                 # hydraulics
@@ -225,12 +283,11 @@ class HydrionEnv(gym.Env):
             dtype=np.float32,
         )
 
-    # ---------------------------------------------------------
     def render(self):
         print(
-            f"Flow={self.state['flow']:.3f}, "
-            f"P={self.state['pressure']:.3f}, "
-            f"Clog={self.state['clog']:.3f}, "
+            f"Flow={self.state.get('flow', 0.0):.3f}, "
+            f"P={self.state.get('pressure', 0.0):.3f}, "
+            f"Clog={self.state.get('clog', 0.0):.3f}, "
             f"E_norm={self.state.get('E_norm', 0.0):.3f}, "
             f"Turb={self.state.get('sensor_turbidity', 0.0):.3f}, "
             f"Scatter={self.state.get('sensor_scatter', 0.0):.3f}"
