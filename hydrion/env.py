@@ -13,9 +13,13 @@ from .physics.electrostatics import ElectrostaticsModel
 from .physics.particles import ParticleModel
 from .sensors.optical import OpticalSensorArray
 
-# Commit 1 imports
+# Commit 1 v1.5 imports
 from .runtime.run_context import RunContext
 from .runtime.seeding import set_global_seed
+
+# Commit 2 v1.5 imports
+from pathlib import Path
+from .logging.writer import RunLogger
 
 
 class HydrionEnv(gym.Env):
@@ -85,6 +89,15 @@ class HydrionEnv(gym.Env):
             deterministic_id=True,
         )
 
+        # ------------------------------
+        # Commit 2: Logging Skeleton
+        # ------------------------------
+        # Default: logs go to project-root / runs / <run_id>/
+        # If you want configurable later, we can add cfg.raw["logging"]["base_dir"]
+        self._log_base_dir = Path(self.cfg.raw.get("logging", {}).get("base_dir", "runs"))
+        self.logger = RunLogger(base_dir=self._log_base_dir, enabled=True, strict=False)
+        self._episode_return = 0.0
+
         # Track which seed was actually used for the most recent reset
         self._active_seed: int = self.run_context.seed
 
@@ -133,6 +146,34 @@ class HydrionEnv(gym.Env):
         set_global_seed(resolved_seed)
 
         self.steps = 0
+        
+        # Reset episode return accumulator
+        self._episode_return = 0.0
+
+        # Start logging run (Commit 2)
+        run_header = {
+            "run_id": self.run_context.run_id,
+            "version": self.run_context.version,
+            "seed": self._active_seed,
+            "noise_enabled": self.run_context.noise_enabled,
+            "config_hash": self.run_context.config_hash,
+        }
+        # Full config snapshot as logged evidence
+        self.logger.start_run(
+            run_id=self.run_context.run_id,
+            run_header=run_header,
+            config=self.cfg.raw,
+        )
+
+        # Log initial reset spine row
+        self.logger.log_step({
+            "event": "reset",
+            "run_id": self.run_context.run_id,
+            "timestep": 0,
+            "step": 0,
+            "seed": self._active_seed,
+        })
+
 
         # Base state scaffold
         self.state = {
@@ -238,6 +279,36 @@ class HydrionEnv(gym.Env):
         info["seed"] = self._active_seed
         info["noise_enabled"] = self.run_context.noise_enabled
         info["config_hash"] = self.run_context.config_hash
+
+                # Accumulate episode return
+        self._episode_return += float(reward)
+
+        # Commit 2: timestep spine logging (minimal, extensible)
+        # We keep it small now: time index, reward, termination, and a few key scalars.
+        self.logger.log_step({
+            "event": "step",
+            "run_id": self.run_context.run_id,
+            "timestep": int(self.steps),
+            "step": int(self.steps),
+            "reward": float(reward),
+            "terminated": bool(terminated),
+            "truncated": bool(truncated),
+            "flow": float(self.state.get("flow", 0.0)),
+            "pressure": float(self.state.get("pressure", 0.0)),
+            "clog": float(self.state.get("clog", 0.0)),
+            "sensor_turbidity": float(self.state.get("sensor_turbidity", 0.0)),
+            "sensor_scatter": float(self.state.get("sensor_scatter", 0.0)),
+        })
+
+        # If episode ended, close out run with a summary row
+        if terminated or truncated:
+            self.logger.end_run(summary={
+                "episode_return": float(self._episode_return),
+                "steps": int(self.steps),
+                "terminated": bool(terminated),
+                "truncated": bool(truncated),
+            })
+
 
         return self._observe(), reward, terminated, truncated, info
 
