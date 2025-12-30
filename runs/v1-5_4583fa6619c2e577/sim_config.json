@@ -1,0 +1,22 @@
+{
+  "_logged_utc": "2025-12-30T20:44:06.030732+00:00",
+  "hydraulics": {
+    "P_max_Pa": 80000.0,
+    "Q_max_Lmin": 20.0,
+    "R_m1_base": "1.0e7",
+    "R_m2_base": "2.0e7",
+    "R_m3_base": "4.0e7",
+    "R_pipe": "2.0e7",
+    "R_valve_max": "8.0e7",
+    "R_valve_min": "0.5e7",
+    "bf_flow_penalty": 0.8,
+    "k_m1_clog": "3.0e7",
+    "k_m2_clog": "4.0e7",
+    "k_m3_clog": "5.0e7",
+    "max_Q_Lmin": 50.0,
+    "min_Q_Lmin": 0.0
+  },
+  "sim": {
+    "dt": 0.1
+  }
+}

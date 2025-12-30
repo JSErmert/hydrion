@@ -1,6 +1,8 @@
 # Created by pytest automatically.
 # Hydrion run artifacts (large experiment data)
 runs/
+outputs/
 checkpoints/
 *.pkl
 *.zip
+*.png

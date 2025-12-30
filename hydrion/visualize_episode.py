@@ -1,39 +1,61 @@
-# hydrion/visualize_episode.py
-from __future__ import annotations
+"""
+hydrion/visualize_episode.py
 
-import matplotlib.pyplot as plt
-from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
+Truthful spatial episode visualization (Commit 5).
+Pure observer: no mechanics, no reward, no PPO, no viz2d.
+"""
 
-from hydrion.env import HydrionEnv
-from hydrion.utils.episode_recorder import rollout_episode
-from hydrion.rendering.viz2d import plot_episode_timeseries
-
-
-MODEL_PATH = "ppo_hydrion_final_12d.zip"
+from hydrion.visual_sampling.particle_sampler import ParticleSampler
+from hydrion.rendering.static_geometry import draw_static_context
 
 
-def make_env():
-    return HydrionEnv()
+def visualize_episode(
+    env,
+    renderer,
+    seed: int,
+    max_steps: int = 1000,
+):
+    # ----------------------------
+    # Reset environment
+    # ----------------------------
+    obs, info = env.reset(seed=seed)
 
+    # ----------------------------
+    # Initialize particle sampler
+    # ----------------------------
+    sampler = ParticleSampler(
+        max_particles=500,
+        inlet_x_range=(-0.4, 0.4),
+        inlet_y=1.0,
+        flow_speed=0.5,
+        sink_x=0.8,
+    )
 
-def visualize_with_policy(model_path=MODEL_PATH):
-    # Load env + model
-    vec_env = DummyVecEnv([make_env])
-    model = PPO.load(model_path, env=vec_env)
+    # IMPORTANT: use env.truth_state (Commit 3 contract)
+    sampler.reset(
+        state=env.truth_state,
+        seed=seed,
+    )
 
-    # Rollout one episode
-    history = rollout_episode(vec_env, policy=model, deterministic=True)
+    # ----------------------------
+    # Episode loop
+    # ----------------------------
+    done = False
+    step_count = 0
 
-    # Plot results
-    plot_episode_timeseries(history)
+    while not done and step_count < max_steps:
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
 
+        # IMPORTANT: use env.dt (runtime truth)
+        particles = sampler.step(dt=env.dt)
 
-def visualize_random():
-    env = HydrionEnv()
-    history = rollout_episode(env, policy=None)
-    plot_episode_timeseries(history)
+        renderer.begin_frame()
+        draw_static_context(renderer)
+        renderer.draw_particles(particles)
+        renderer.end_frame()
 
+        step_count += 1
 
-if __name__ == "__main__":
-    visualize_with_policy()
+    renderer.close()

@@ -1,11 +1,11 @@
 """
 hydrion/visualize_episode.py
 
-Truthful episode visualization.
-Pure observer: no mechanics, no reward, no mutation.
+Truthful episode visualization with static spatial context.
 """
 
 from hydrion.visual_sampling.particle_sampler import ParticleSampler
+from hydrion.rendering.static_geometry import draw_static_context
 
 
 def visualize_episode(
@@ -17,11 +17,10 @@ def visualize_episode(
     """
     Run a single episode with deterministic visual inspection.
 
-    Visualization is a pure witness:
-    - Reads mechanical state
-    - Samples visual particles
-    - Renders frames
-    - Never influences the environment
+    Visualization is a pure observer:
+    - mechanics unchanged
+    - particles sampled deterministically
+    - geometry is static annotation only
     """
 
     # ----------------------------
@@ -52,22 +51,22 @@ def visualize_episode(
     step_count = 0
 
     while not done and step_count < max_steps:
-        # --- Advance environment (policy or noop action)
-        action = env.action_space.sample()  # or policy(action)
+        action = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
 
-        # --- Advance visual witnesses
         particles = sampler.step(dt=env.cfg.dt)
 
-        # --- Render (pure observer)
         renderer.begin_frame()
+
+        # --- Static spatial context (Commit 5.3)
+        draw_static_context(renderer)
+
+        # --- Dynamic witnesses (Commits 5.1 / 5.2)
         renderer.draw_particles(particles)
+
         renderer.end_frame()
 
         step_count += 1
 
-    # ----------------------------
-    # Finalize visualization
-    # ----------------------------
     renderer.close()
