@@ -1,0 +1,11 @@
+# HydrOS Validation Protocol v2 — Mass Balance config
+# C_out <= C_in, capture_eff in [0,1], flow >= 0
+
+mass_balance:
+  seed: 0
+  num_steps: 500
+  atol: 1.0e-6
+  checks:
+    c_out_le_c_in: true
+    capture_eff_bounded: true
+    flow_non_negative: true

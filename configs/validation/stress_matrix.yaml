@@ -1,0 +1,15 @@
+# HydrOS Validation Protocol v2 — Stress Matrix config
+# Tests: stability, safety envelope, optional scenario ref
+
+stress_matrix:
+  num_episodes: 5
+  steps_per_episode: 300
+  seeds: [0, 1, 2, 3, 4]
+  action_mode: random
+  extreme_action_fraction: 0.3
+  fail_on_nan: true
+  bounds:
+    flow: [0.0, 1.0]
+    pressure: [0.0, 1.0]
+    clog: [0.0, 1.0]
+    obs_norm: [0.0, 1.0]

@@ -1,0 +1,22 @@
+# HydrOS Validation Protocol v2 — Coupled anomaly behavior scenario
+# Validation runs with this scenario ref; tests sensor robustness and
+# coupled response (e.g. high clog + high pump). No physics injection;
+# scenario only drives action profile and expected bounds.
+
+name: coupled_anomaly
+description: High-load segment then recovery; validate bounds and recovery
+seed: 7
+# Stress phase
+stress:
+  steps: 50
+  action: [0.2, 0.9, 0.0, 0.6]
+# Recovery phase
+recovery:
+  steps: 100
+  action: [0.5, 0.5, 0.0, 0.5]
+bounds:
+  flow: [0.0, 1.0]
+  pressure: [0.0, 1.0]
+  clog: [0.0, 1.0]
+  obs_norm: [0.0, 1.0]
+fail_on_nan: true

@@ -1,0 +1,17 @@
+# HydrOS Validation Protocol v2 — Envelope Sweep config
+# Sweep action space; assert obs and truth_state stay in bounds
+
+envelope_sweep:
+  seed: 42
+  steps_per_action: 10
+  fail_on_nan: true
+  grid:
+    valve: [0.2, 0.8, 3]
+    pump: [0.3, 0.9, 3]
+    backflush: [0.0, 0.3, 2]
+    node_voltage: [0.3, 0.7, 2]
+  bounds:
+    flow: [0.0, 1.0]
+    pressure: [0.0, 1.0]
+    clog: [0.0, 1.0]
+    obs_all: [0.0, 1.0]

@@ -1,0 +1,19 @@
+# HydrOS Validation Protocol v2 — Sensor robustness scenario
+# Bounds for obs (sensor-derived) and truth; validates observation vector
+# remains in range under varied actions. No sensor logic changes.
+
+name: sensor_robustness
+description: Envelope sweep stressing observation bounds (sensor fusion output)
+seed: 21
+steps_per_action: 8
+grid:
+  valve: [0.1, 0.9, 4]
+  pump: [0.2, 0.95, 4]
+  backflush: [0.0, 0.4, 2]
+  node_voltage: [0.2, 0.8, 2]
+bounds:
+  flow: [0.0, 1.0]
+  pressure: [0.0, 1.0]
+  clog: [0.0, 1.0]
+  obs_all: [0.0, 1.0]
+fail_on_nan: true

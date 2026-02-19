@@ -1,0 +1,16 @@
+# HydrOS Validation Protocol v2 — Stability scenario
+# Used as optional --scenario for stress_matrix / envelope_sweep
+# No physics/sensor/safety changes; only run conditions
+
+name: stability
+description: Long-horizon stability under random actions
+seed: 0
+num_episodes: 3
+steps_per_episode: 500
+action_mode: random
+bounds:
+  flow: [0.0, 1.0]
+  pressure: [0.0, 1.0]
+  clog: [0.0, 1.0]
+  obs_norm: [0.0, 1.0]
+fail_on_nan: true
