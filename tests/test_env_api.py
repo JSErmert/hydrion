@@ -2,6 +2,19 @@ import numpy as np
 from hydrion.env import HydrionEnv
 
 
+def test_observation_12d_regression():
+    """PSD disabled (default): observation remains 12D, keys unchanged."""
+    env = HydrionEnv(config_path="configs/default.yaml")
+    obs, _ = env.reset()
+    assert obs.shape == (12,), f"Expected 12D obs, got {obs.shape}"
+    obs2, _, _, _, _ = env.step(env.action_space.sample())
+    assert obs2.shape == (12,)
+    # Core truth_state keys
+    assert "C_in" in env.truth_state
+    assert "C_out" in env.truth_state
+    assert "particle_capture_eff" in env.truth_state
+
+
 def test_env_api():
     print("\n--- HydrionEnv Full API Test (12D obs) ---")
 

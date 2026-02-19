@@ -1,1 +1,3 @@
-{}
+{
+  "tests/test_validation_protocol_v2.py::test_recovery_latency_minimal": true
+}

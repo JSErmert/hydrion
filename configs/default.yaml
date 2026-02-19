@@ -16,3 +16,13 @@ hydraulics:
   bf_flow_penalty: 0.8
   min_Q_Lmin: 0.0
   max_Q_Lmin: 50.0
+
+# Particle model (optional PSD + fiber fraction)
+particles:
+  C_in_base: 0.7
+  psd:
+    enabled: false
+    mode: hybrid
+  shape:
+    enabled: false
+    fiber_fraction: 1.0

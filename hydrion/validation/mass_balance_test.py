@@ -57,6 +57,7 @@ def run_mass_balance_test(
     check_c_out_le_c_in = bool(checks.get("c_out_le_c_in", True))
     check_capture_eff_bounded = bool(checks.get("capture_eff_bounded", True))
     check_flow_non_negative = bool(checks.get("flow_non_negative", True))
+    check_per_bin = bool(checks.get("per_bin_mass_balance", False))
 
     env = HydrionEnv(config_path=config_path)
     obs, _ = env.reset(seed=seed)
@@ -79,6 +80,18 @@ def run_mass_balance_test(
         if check_flow_non_negative and Q_out < 0.0 - atol:
             violations.append(f"step={step} Q_out_Lmin={Q_out:.6f} < 0")
 
+        # Optional per-bin mass balance (only when PSD fields exist and config enables)
+        if check_per_bin and "C_out_bin_0" in truth:
+            i = 0
+            while f"C_out_bin_{i}" in truth:
+                C_in_bin = float(truth.get(f"C_in_bin_{i}", 0.0))
+                C_out_bin = float(truth.get(f"C_out_bin_{i}", 0.0))
+                if C_out_bin > C_in_bin + atol:
+                    violations.append(
+                        f"step={step} bin={i} C_out_bin={C_out_bin:.6f} > C_in_bin={C_in_bin:.6f}"
+                    )
+                i += 1
+
         if term or trunc:
             env.reset(seed=seed + step + 1)
 
@@ -94,6 +107,7 @@ def run_mass_balance_test(
             "c_out_le_c_in": check_c_out_le_c_in,
             "capture_eff_bounded": check_capture_eff_bounded,
             "flow_non_negative": check_flow_non_negative,
+            "per_bin_mass_balance": check_per_bin,
         },
     }
     if output_path:
