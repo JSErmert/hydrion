@@ -12402,3 +12402,7 @@
 {"event":"step","run_id":"v1-5_1626b49342c4840e","timestep":998,"step":998,"reward":0.3020832498558691,"terminated":false,"truncated":false,"flow":0.26333573986250103,"pressure":0.22458822986913293,"clog":1.558819639637119e-17,"sensor_turbidity":0.11563803724224621,"sensor_scatter":0.1585637805142697}
 {"event":"step","run_id":"v1-5_1626b49342c4840e","timestep":999,"step":999,"reward":0.11880388789416087,"terminated":false,"truncated":false,"flow":0.1329876580230523,"pressure":0.1471714281519437,"clog":1.561341190290435e-17,"sensor_turbidity":0.09270108087028815,"sensor_scatter":0.055695028712579066}
 {"event":"step","run_id":"v1-5_1626b49342c4840e","timestep":1000,"step":1000,"reward":0.002355343521727493,"terminated":false,"truncated":false,"flow":0.015851023542334964,"pressure":0.029346703562942427,"clog":1.5616417115249616e-17,"sensor_turbidity":0.11925424127430281,"sensor_scatter":0.035349138522941255}
+{"event":"reset","run_id":"v1-5_1626b49342c4840e","timestep":0,"step":0,"seed":0}
+{"event":"reset","run_id":"v1-5_1626b49342c4840e","timestep":0,"step":0,"seed":555}
+{"event":"reset","run_id":"v1-5_1626b49342c4840e","timestep":0,"step":0,"seed":0}
+{"event":"reset","run_id":"v1-5_1626b49342c4840e","timestep":0,"step":0,"seed":555}

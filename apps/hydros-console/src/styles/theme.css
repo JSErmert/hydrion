@@ -1,0 +1,15 @@
+:root {
+  --bg-primary: #0F172A;
+  --bg-panel: #111C2D;
+  --border-subtle: #1E293B;
+  --accent-electric: #00C2FF;
+  --text-primary: #E2E8F0;
+  --text-secondary: #94A3B8;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: Inter, system-ui, sans-serif;
+}
