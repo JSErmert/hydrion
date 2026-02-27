@@ -1,9 +1,31 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .venv/
 env/
-data/
-models/
+
+# Jupyter
 .ipynb_checkpoints/
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Training artifacts
+runs/
+outputs/
+checkpoints/
+*.pth
+*.pt
+*.pkl
+*.zip
+*.log
+
+# Frontend
+node_modules/
+dist/
+
+# Build
+build/
