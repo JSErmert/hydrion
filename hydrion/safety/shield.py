@@ -83,6 +83,11 @@ class SafeRLShield:
         """
         Filter the raw action before it reaches the environment.
 
+        The signature now accepts the full ``env`` object so that safety
+        decisions may inspect ``truth_state`` or other attributes. A
+        fallback is provided by the wrapper if ``env`` lacks the
+        expected fields.
+
         Returns a "safe" action vector.
         """
         c = self.cfg
@@ -131,7 +136,8 @@ class SafeRLShield:
             (new_reward, new_terminated, safety_info)
         """
         c = self.cfg
-        s: Dict[str, Any] = getattr(env, "state", {})
+        # use truth_state if available; otherwise fall back gracefully
+        s: Dict[str, Any] = getattr(env, "truth_state", getattr(env, "state", {}))
 
         flow = float(s.get("flow", 0.0))
         pressure = float(s.get("pressure", 0.0))
@@ -201,40 +207,5 @@ class SafeRLShield:
 # Gymnasium wrapper for stable-baselines3
 # ---------------------------------------------------------------------------
 
-class ShieldedEnv(gym.Wrapper):
-    """
-    Gymnasium wrapper that applies SafeRLShield around HydrionEnv.
-
-    Usage:
-        env = HydrionEnv(...)
-        env = ShieldedEnv(env)
-
-    Works transparently with Stable-Baselines3 PPO.
-    """
-
-    def __init__(self, env: gym.Env, cfg: Optional[SafetyConfig] = None):
-        super().__init__(env)
-        self.shield = SafeRLShield(cfg)
-
-    def reset(self, **kwargs):
-        obs, info = self.env.reset(**kwargs)
-        self.shield.reset()
-        return obs, info
-
-    def step(self, action):
-        # Pre-process action
-        safe_action = self.shield.pre_action(action, self.env)
-
-        # Step underlying env
-        obs, reward, terminated, truncated, info = self.env.step(safe_action)
-
-        # Post-process transition
-        reward, terminated, safety_info = self.shield.post_step(
-            self.env, obs, reward, terminated
-        )
-
-        # Attach safety info for logging / debugging
-        info = dict(info)  # shallow copy
-        info["safety"] = safety_info
-
-        return obs, reward, terminated, truncated, info
+# The canonical ShieldedEnv wrapper lives in ``hydrion.wrappers``.
+# We intentionally do not re-export it here to avoid circular imports.

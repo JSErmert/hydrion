@@ -30,6 +30,11 @@ class ShieldedEnv(gym.Wrapper):
         self.action_space = env.action_space
         self.observation_space = env.observation_space
 
+    # forward any other attributes to the underlying environment to avoid
+    # losing important fields such as ``cfg`` or ``dt`` when wrapped.
+    def __getattr__(self, name: str):
+        return getattr(self.env, name)
+
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         self.shield.reset()
@@ -39,20 +44,12 @@ class ShieldedEnv(gym.Wrapper):
         # Ensure numpy action
         proposed = np.clip(np.asarray(action, dtype=np.float32), 0.0, 1.0)
 
-        # Access Commit-3 truth state
-        truth_state = getattr(self.env, "truth_state", None)
-
         # ------------------------------
-        # Pre-action safety
+        # Pre-action safety (shield now inspects the env itself)
         # ------------------------------
-        if truth_state is None:
-            # Fail open if wrapping a non-Hydrion env
-            safe_action = proposed
-            projected = False
-        else:
-            safe_action = self.shield.pre_action(proposed, truth_state)
-            safe_action = np.clip(np.asarray(safe_action, dtype=np.float32), 0.0, 1.0)
-            projected = not np.allclose(safe_action, proposed)
+        safe_action = self.shield.pre_action(proposed, self.env)
+        safe_action = np.clip(np.asarray(safe_action, dtype=np.float32), 0.0, 1.0)
+        projected = not np.allclose(safe_action, proposed)
 
         # Step underlying env
         obs, reward, terminated, truncated, info = self.env.step(safe_action)
@@ -60,21 +57,16 @@ class ShieldedEnv(gym.Wrapper):
         # ------------------------------
         # Post-step safety evaluation
         # ------------------------------
-        if truth_state is None:
-            safety_info: Dict[str, Any] = {
-                "projected": projected,
-                "reason": "no_truth_state",
-                "penalty": 0.0,
-            }
-        else:
-            reward, terminated, safety_info = self.shield.post_step(
-                self.env,           # env provides access to truth_state internally
-                obs,
-                reward,
-                terminated,
-            )
+        # Post-step safety evaluation
+        reward, terminated, safety_info = self.shield.post_step(
+            self.env,
+            obs,
+            reward,
+            terminated,
+        )
 
-            safety_info["projected"] = projected
+        # record whether the shield changed the action
+        safety_info["shield_intervened"] = projected
 
         # Attach safety info to info dict
         info = dict(info) if info is not None else {}

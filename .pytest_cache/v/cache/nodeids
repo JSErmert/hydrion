@@ -1,4 +1,7 @@
 [
+  "tests/test_artifact_schema.py::test_append_spine_step_validates_keys",
+  "tests/test_artifact_schema.py::test_manifest_includes_artifact_schema",
+  "tests/test_artifact_schema.py::test_metrics_stability_flag",
   "tests/test_clogging.py::test_clogging_basic",
   "tests/test_electrostatics.py::test_electrostatics_basic",
   "tests/test_env_api.py::test_env_api",
@@ -12,6 +15,7 @@
   "tests/test_reproducibility_smoke.py::test_reproducibility_same_seed_same_rollout",
   "tests/test_sensors.py::test_sensors_basic",
   "tests/test_shield_env_smoke.py::test_shielded_env_runs_and_injects_info",
+  "tests/test_shield_integrity.py::test_shield_integrity",
   "tests/test_validation_protocol_v2.py::test_envelope_sweep_minimal",
   "tests/test_validation_protocol_v2.py::test_envelope_sweep_with_config",
   "tests/test_validation_protocol_v2.py::test_mass_balance_minimal",
