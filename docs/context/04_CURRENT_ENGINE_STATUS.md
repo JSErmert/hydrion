@@ -121,76 +121,93 @@ Hydraulics
 
 # 5. Hydraulics Module
 
+**[UPDATED: Milestone 1 — 2026-04-09]**
+
 ## Implementation
 
 
-hydrion/physics/hydraulics.py
+hydrion/physics/hydraulics.py  (HydraulicsModel v2)
 
 
 ### Current behavior
 
-- Computes:
-  - flow (`Q_out_Lmin`)
-  - pressure (`P_in`, `P_out`, stage pressures)
-- Uses:
-  - pump_cmd
-  - valve_cmd
-  - clogging resistance
+- Solves pump-system operating point via quadratic intersection (monotone Q_in and P_in)
+- Area-normalized clog sensitivity: `k_eff = k_base × (A_s3/A_si)`
+- Passive bypass: activates above 65 kPa, hysteresis band prevents oscillation
+- Splits Q_in into `q_processed_lmin` + `q_bypass_lmin`
+- Computes explicit per-stage ΔP: `dp_stage1_pa`, `dp_stage2_pa`, `dp_stage3_pa`
+- Writes to truth_state; sensor_state untouched
 
 ### Outputs
 
-- Raw values (Pa, L/min)
-- Normalized channels:
-  - flow
-  - pressure
+- `Q_out_Lmin`, `q_in_lmin`, `q_processed_lmin`, `q_bypass_lmin`
+- `P_in`, `P_m1`, `P_m2`, `P_m3`, `P_out`
+- `dp_stage1_pa`, `dp_stage2_pa`, `dp_stage3_pa`, `dp_total_pa`
+- `bypass_active`
 
 ### Strengths
 
-- Stable
-- Clean coupling with clogging
-- Supports control dynamics
+- Physically correct pump curve (quadratic intersection)
+- Bypass prevents unrealistic pressure excursions
+- Area normalization correctly scales resistance per unit fouling
+- All parameters YAML-exposed; no hardcoded physics constants
 
 ### Limitations
 
-- Not yet calibrated to real laundry flow profiles
+- Not calibrated to real laundry flow profiles
 - No transient surge modeling
-- No bypass modeling
 - No temperature / viscosity variation
+- Bypass threshold implicitly coupled to P_max_Pa (see audit issue A3)
+- Area normalization inverts Stage 3 ΔP dominance intuition (see audit issue R3)
 
 ---
 
 # 6. Clogging Module
 
+**[UPDATED: Milestone 1 — 2026-04-09]**
+
 ## Implementation
 
 
-hydrion/physics/clogging.py
+hydrion/physics/clogging.py  (CloggingModel v3)
 
 
 ### Current behavior
 
-- Maintains:
-  - Mc1, Mc2, Mc3 (mesh loadings)
-  - n1, n2, n3 (normalized clog)
-  - mesh_loading_avg
+- Decomposed fouling model with 4 primary state variables per stage:
+  - `cake_si`, `bridge_si`, `pore_si` (recoverable components)
+  - `irreversible_si` (permanent accumulation above 70% threshold)
+- Aggregate compatibility fields maintained: `Mc1/2/3`, `n1/2/3`, `mesh_loading_avg`
+- Non-monotonic capture efficiency curve: `baseline + gain × n × (1−n)^exponent`
+- Nonlinear deposition: `dep ∝ (ff + ε)^dep_exponent`
+- Passive shear removal: `∝ Q_in / Q_ref`
 
-- Updates based on:
-  - flow
-  - particle load (C_fibers)
+### KNOWN CALIBRATION ISSUE (M1.5)
+
+`dep_exponent = 2.0` creates bistable kinetics. Each stage has an unstable fixed point:
+
+```
+ff_u = shear_coeff / (dep_rate × dep_base × Q_ref)
+```
+
+At default params: Stage 1 ≈ 0.667, Stage 2 ≈ 0.417, Stage 3 ≈ 0.222.
+
+Below ff_u → self-cleans to zero. Above ff_u → accelerates to saturation.
+
+**Consequence**: Clean-start RL training will never observe fouling. Fix: `dep_exponent: 2.0 → 1.0` in YAML (M1.5 sprint).
 
 ### Strengths
 
-- Multi-stage representation
-- Stable and continuous
-- Works well for RL training
+- Physically decomposed fouling (cake/bridge/pore) is hardware-aligned
+- Irreversible fraction models permanent mesh degradation
+- All component weights and kinetics parameters are YAML-exposed
+- Full backward compatibility with pre-M1 observation schema
 
 ### Limitations
 
-- No explicit surface cake model
-- No fiber bridging mechanics
-- No pore-blocking dynamics
-- No irreversible fouling
-- Backflush interaction is simplified
+- dep_exponent=2 blocks clean-start fouling growth (M1.5 fix pending)
+- Component weights are first-pass estimates, not hardware-validated
+- Component sum can exceed fouling_frac at extreme params (C2, ~5 lines to fix)
 
 ---
 
@@ -416,23 +433,43 @@ apps/hydros-console/
 
 # 14. Reward System
 
-## Current reward
+**[UPDATED: Milestone 1 — 2026-04-09]**
 
+## Current reward (5-term, interim)
 
-r = 2flow - pressure - 0.5clog
+```python
+reward = (
+    w_processed_flow   × (q_processed / Q_nominal_max)      # +2.0
+  − w_pressure_penalty × max(0, pressure − 0.50)²           # −1.0
+  − w_fouling_penalty  × max(0, mesh_avg − 0.40)            # −0.5
+  − w_bypass_penalty   × (q_bypass / Q_nominal_max)         # −0.3
+  − w_backflush_cost   × bf_active                          # −0.1
+)
+```
 
+Approximate range: [−0.85, +2.67] per step (uncapped upward).
+
+### Key properties
+
+- Uses `q_processed` (filtered throughput), not `q_in` (includes bypass)
+- Pressure penalty is quadratic, activates above 50% normalized pressure
+- Fouling penalty is linear, activates above 40% average loading
+- `maintenance_required` flag explicitly excluded (keeps reward continuous)
+- All weights in `configs/default.yaml` under `reward:` section
 
 ### Strengths
 
-- Stable
-- Encourages flow + low clog
+- Exposes hydraulic/fouling tradeoffs to RL agent
+- Penalizes bypass explicitly (unfiltered flow costs reward)
+- Penalizes backflush cost (discourages unnecessary triggering)
+- Continuous reward surface — no discrete cliffs
 
 ### Limitations
 
-- Does NOT prioritize capture
-- Does NOT reflect maintenance cost
-- Does NOT reflect energy usage
-- Not aligned with system mission
+- Does NOT prioritize capture efficiency directly (M6)
+- Does NOT reflect energy usage (M6)
+- Q_nominal_max (15 L/min) means flow > 15 produces reward > w_processed_flow (intentional but worth noting)
+- Interim design — will be replaced by multi-objective reward in M6
 
 ---
 
@@ -449,12 +486,16 @@ r = 2flow - pressure - 0.5clog
 
 ## What is abstract
 
-- electrostatics realism
-- clogging realism
-- backflush dynamics
-- sensor realism
-- reward alignment
-- telemetry integration
+- electrostatics realism (M3 target)
+- sensor realism — no differential pressure sensor, no drift modeling (M5 target)
+- reward alignment — capture not yet primary signal (M6 target)
+- telemetry integration (console track)
+
+## What was abstract, now concrete (Milestone 1)
+
+- hydraulics: pump curve, area-normalized resistance, bypass logic, per-stage ΔP
+- clogging: decomposed fouling (cake/bridge/pore), irreversible fraction, capture efficiency curve
+- backflush: pulse state machine, partial recovery, diminishing returns, cooldown
 
 ---
 
@@ -462,13 +503,16 @@ r = 2flow - pressure - 0.5clog
 
 HydrOS is currently:
 
-> A structurally correct, modular, RL-ready digital twin with strong foundations,
-but still operating at an abstract level in key physical subsystems.
+> A structurally correct, modular, RL-ready digital twin with hydraulic and fouling
+realism grounded in Milestone 1. The physics pipeline now captures pump curve behavior,
+decomposed fouling, passive bypass, and backflush recovery as physically meaningful
+interactions. Electrostatics, sensor realism, and reward alignment remain abstract.
 
-The next phase must focus on:
+The next phase (M1.5 calibration sprint) must:
 
-- increasing realism
-- preserving stability
-- maintaining modular integrity
+- Fix bistable deposition kinetics (`dep_exponent: 2.0 → 1.0`)
+- Begin hardware ΔP calibration to resolve Stage 3 dominance question
 
-without introducing architectural drift.
+Then (M3):
+
+- Introduce physically grounded electrostatic conditioning and capture

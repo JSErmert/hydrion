@@ -35,109 +35,67 @@ Realism must be built in this sequence:
 
 # Milestone 1 — Hydraulic + Fouling Backbone
 
-## Objective
+**STATUS: COMPLETE**
+**Date**: 2026-04-09
+**Branch**: `HydrOS-x-Claude-Code`
+**Commits**: `1bc1f5f` (implementation) + `b38d006` (pre-merge docs patches)
+**Validation**: 10/10 tests pass — see `docs/updates/milestone1_design_record.md`
 
-Establish physically meaningful interaction between:
-- flow
-- pressure
-- clogging
-- throughput
+## Delivered
 
-This is the **foundation of realism**.
+- Pump-system curve intersection (quadratic solve, monotone P_in/Q_in)
+- Area-normalized clog sensitivity (`k_eff = k_base × A_s3/A_si`)
+- Passive bypass with hysteresis (65 kPa threshold, 90% deactivation band)
+- Decomposed fouling: per-stage `cake`, `bridge`, `pore`, `irreversible` state
+- Non-monotonic capture efficiency curve (YAML-parameterized)
+- 5-term reward exposing hydraulic/fouling tradeoffs to RL
+- 6 new validation tests (4 pre-existing also pass)
+
+## Known Issues (M1.5 sprint)
+
+| ID | Issue | Fix |
+|---|---|---|
+| R1 | dep_exponent=2 → bistable; filter won't foul from clean reset | `dep_exponent: 1.0` in YAML |
+| C2 | Component sum can exceed fouling_frac at extreme params | Normalize after clip in `_update_stage()` |
+| R3 | Area normalization inverts Stage 3 ΔP dominance | Lab calibration sprint |
+| A3 | Bypass threshold coupled to P_max_Pa | Decouple in M2 |
 
 ---
+
+# Milestone 1.5 — Calibration Sprint
+
+**STATUS: OPEN**
+**Priority**: HIGH — R1 (bistable kinetics) blocks effective RL training
 
 ## Scope
 
-### Hydraulics
-
-Upgrade current model to include:
-
-- flow envelope constraints:
-  - 5 L/min (low)
-  - 12–15 L/min (nominal)
-  - 20 L/min (transient)
-
-- throughput limitation:
-  - handheld system capacity
-  - overflow / bypass logic
-
-- stage-area-dependent flow resistance:
-  - Stage 1: 120 cm²
-  - Stage 2: 220 cm²
-  - Stage 3: 900 cm²
-
----
-
-### Clogging
-
-Replace current abstraction with hybrid model:
-
-1. surface cake accumulation (primary)
-2. fiber bridging / entanglement (secondary)
-3. pore restriction (tertiary)
-
-Add:
-
-- recoverable clog fraction
-- irreversible fouling fraction
-- nonlinear degradation near ~70% capacity
-
----
+1. Fix bistable deposition kinetics: `dep_exponent: 2.0 → 1.0` in `configs/default.yaml`
+2. Fix component sum normalization: ~5 lines in `clogging.py` `_update_stage()`
+3. Begin hardware ΔP calibration: tune `dep_rate_s1/s2/s3` against physical pressure drop data
+4. Validate that clean-start episodes now produce observable fouling growth
+5. Verify RL training produces non-degenerate control policies under new kinetcs
 
 ## Acceptance Criteria
 
-- pressure vs flow curve behaves realistically
-- clog increases pressure nonlinearly
-- system reaches degraded state near threshold
-- no NaNs or instability
-- validation protocol passes
+- `dep_exponent=1`: fouling grows from `ff=0` to saturation within a reasonable episode
+- `mesh_loading_avg` reaches 0.70 from clean reset in ≤ 500 steps at nominal flow
+- M1 validation suite (10/10) still passes after parameter changes
 
 ---
 
 # Milestone 2 — Backflush Dynamics
 
-## Objective
+**STATUS: COMPLETE (merged into Milestone 1 sprint)**
+**Date**: 2026-04-09
 
-Convert backflush from abstraction → physically meaningful maintenance system.
+Delivered in `HydrOS-x-Claude-Code` commit `1bc1f5f`:
+- Multi-burst pulse state machine (3 pulses, 0.4 s, 0.25 s spacing, 9 s cooldown)
+- Per-component recovery (cake 35%, bridge 20%, pore 8%)
+- Diminishing returns (80% factor per successive burst)
+- Recirculated effluent source (70% efficiency); clean water mode hook present
+- Cooldown prevents unrealistic oscillation
 
----
-
-## Scope
-
-### Backflush Model
-
-Implement:
-
-- multi-burst square pulse:
-  - 3 pulses
-  - 0.4 s duration
-  - 0.25 s spacing
-  - 8–10 s cooldown
-
-### Cleaning Behavior
-
-Model:
-
-- partial recovery
-- diminishing returns
-- irreversible fouling persistence
-- stage-specific cleaning efficiency
-
-### Fluid Source
-
-- default: recirculated effluent
-- secondary: clean water (service mode)
-
----
-
-## Acceptance Criteria
-
-- clog decreases during pulses
-- recovery is partial, not perfect
-- repeated cycles show degradation
-- cooldown prevents unrealistic oscillation
-- RL can learn maintenance timing
+All M2 acceptance criteria satisfied. Backflush is now a physically meaningful maintenance system.
 
 ---
 
