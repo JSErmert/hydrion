@@ -1,183 +1,152 @@
-# HYDRION — Research-Grade Digital Twin & Safe RL Environment
+# HydrOS / Hydrion
 
-Hydrion is a modular multi-physics digital twin simulating a microfiber and microplastic extraction system.  
-It integrates hydraulic flow, mesh clogging, particle transport, electrostatic capture, optical sensing,  
-and reinforcement learning control for academic and research applications.
+## Research-Grade Digital Twin for Microplastic Extraction
 
-This repository supports work in digital twins, safe reinforcement learning, filtration system development,  
-and environmental technology.
+HydrOS is a **modular, physics-driven simulation engine** designed to model and optimize a **handheld microplastic extraction system for laundry outflow**.
 
-Project Overview:
+It combines:
 
-Hydrion models the full operational sequence of a microfiber extraction device:
+- multi-stage filtration physics
+- electrostatic capture modeling
+- sensor realism
+- Safe reinforcement learning (RL)
+- validation-driven engineering
+- mission-control observability
 
-- Water flows through a three-stage mesh filtration stack (500 → 100 → 5 µm).
-- Mesh clogging accumulates dynamically and influences pressure and flow.
-- Microplastic/microfiber concentrations evolve through capture and leakage.
-- Electrostatic nodes provide secondary capture downstream of the mesh.
-- Optical sensors simulate turbidity, scatter, and camera-based concentration.
-- A PPO reinforcement learning agent controls pump speed, valve position, backflush, and node voltage.
-- A 2D renderer produces MP4 animations illustrating system behavior.
+---
 
-The project emphasizes physical plausibility, modular design, and reproducibility.
+# What This Is
+
+HydrOS is:
+
+- a **digital twin**
+- a **control system simulator**
+- a **research platform**
+- a **hardware-forward architecture**
+
+It is designed to evolve toward:
+
+> predictive alignment with real-world lab data and eventual physical deployment
+
+---
+
+# What This Is NOT
+
+- not a toy RL environment
+- not a dashboard demo
+- not a monolithic simulation
+- not a UI-first project
+
+---
+
+# Core Concepts
+
+## Modular Physics Pipeline
+
+Hydrion simulates:
+
+- Hydraulics
+- Clogging (tri-stage mesh)
+- Electrostatics (field-assisted capture)
+- Particles (PSD + shape)
+- Sensors (optical + future expansion)
+
+---
+
+## State Separation
+
+- `truth_state` → physical reality
+- `sensor_state` → measured reality
+
+---
+
+## Stable Interfaces
+
+- 4D action space
+- 12D observation vector (immutable)
+
+---
+
+## Safe RL
+
+- action filtering
+- constraint enforcement
+- failure detection
+
+---
+
+## Validation First
+
+- stress testing
+- envelope sweeps
+- mass balance
+- recovery dynamics
+
+---
+
+# Repository Structure
+
+See:
 
 
-HYDRION SETUP AND RUN GUIDE
+docs/context/03_REPO_MAP.md
 
-1. SYSTEM REQUIREMENTS
-- Python 3.9–3.11
-- pip
-- VS Code (recommended)
-- ffmpeg (required for MP4 video export)
 
-Install ffmpeg:
-1. Download "ffmpeg-release-essentials.zip" from:
-   https://www.gyan.dev/ffmpeg/builds/
-2. Extract to: C:\ffmpeg
-3. Ensure C:\ffmpeg\bin contains ffmpeg.exe
-4. Add C:\ffmpeg\bin to Windows PATH:
-   - Search "Environment Variables"
-   - Edit system environment variables
-   - Environment Variables...
-   - System Variables → Path → Edit → New
-   - Add: C:\ffmpeg\bin
-5. Restart VS Code
-6. Test: ffmpeg -version
+---
 
-------------------------------------------
+# Current Phase
 
-2. CLONE THE REPOSITORY
-git clone <repo-url>
-cd hydrion
+**Phase 1.5 — Research Console + Realism Backbone**
 
-------------------------------------------
+Focus:
 
-3. CREATE PYTHON ENVIRONMENT
-python -m venv .venv
+- telemetry binding
+- hydraulic + clogging realism
+- backflush dynamics
+- electrostatic modeling
+- RL benchmarking
 
-Activate:
+---
 
-Windows:
-.venv\Scripts\activate
+# Development Philosophy
 
-Mac/Linux:
-source .venv/bin/activate
+HydrOS is built with:
 
-------------------------------------------
+- modular discipline
+- validation-first mindset
+- hardware-forward thinking
+- controlled iteration
 
-4. INSTALL DEPENDENCIES
-pip install -r requirements.txt
+---
 
-requirements.txt should include:
-gymnasium>=0.29.1
-numpy>=1.24
-pyyaml>=6.0
-stable-baselines3[extra]>=2.1.0
-tensorboard>=2.12
-matplotlib>=3.6
-pandas>=2.0
-opencv-python>=4.7
-scikit-image>=0.21
-pyqt5   (optional for GUI backends)
+# Documentation
 
-------------------------------------------
+Full system context:
 
-5. REPOSITORY STRUCTURE
-hydrion/
-  env.py                  # Main RL environment (12D multi-physics)
-  config.py
-  physics/
-     hydraulics.py
-     clogging.py
-     electrostatics.py
-     particles.py
-  sensors/
-     optical.py
-  rendering/
-     viz2d.py
-  utils/
-     episode_recorder.py
-  tests/
-     test_env_api.py
-     test_hydraulics.py
-     test_clogging.py
-     test_electrostatics.py
-     test_particles.py
-     test_sensors.py
-  train_ppo.py
-  eval_ppo.py
-  make_video.py          # Creates vertical reactor MP4 animation
-  checkpoints/
-  videos/
-  runs/
 
-------------------------------------------
+docs/context/
 
-6. UNIT TESTS
-Run these to ensure everything works:
 
-python -m tests.test_env_api
-python -m tests.test_hydraulics
-python -m tests.test_clogging
-python -m tests.test_electrostatics
-python -m tests.test_particles
-python -m tests.test_sensors
+Start here:
 
-------------------------------------------
+- 01_SYSTEM_IDENTITY.md
+- 02_ARCHITECTURE_CONSTRAINTS.md
+- 04_CURRENT_ENGINE_STATUS.md
+- 06_LOCKED_SYSTEM_CONSTRAINTS.md
+- 09_REALISM_ROADMAP.md
 
-7. TRAIN PPO
-python -m hydrion.train_ppo
+---
 
-Outputs:
-  ppo_hydrion_final_12d.zip
-  ppo_hydrion_vecnormalize_12d.pkl
+# Running the System
 
-------------------------------------------
+(leave this minimal for now — can expand later)
 
-8. EVALUATE PPO
-python -m hydrion.eval_ppo
+---
 
-Expected:
-  returns ≈ 2981
-  std ≈ 0.001
+# Final Note
 
-------------------------------------------
+This repository is not a generic codebase.
 
-9. VISUALIZE PHYSICS
-python -m hydrion.visualize_episode
+It is:
 
-------------------------------------------
-
-10. GENERATE DIGITAL TWIN VIDEO (MP4)
-python -m hydrion.make_video
-
-Creates:
-videos/hydrion_run.mp4
-
-------------------------------------------
-
-11. TROUBLESHOOTING
-
-FFmpeg not found:
-  Ensure C:\ffmpeg\bin is added to PATH.
-
-VecNormalize errors:
-  Ensure training produced:
-    ppo_hydrion_vecnormalize_12d.pkl
-
-Matplotlib backend issues:
-  pip install pyqt5
-
-------------------------------------------
-
-12. SIMPLIFIED TASKS CHECKLIST
-
-Task 1 — Setup  
-Task 2 — Run Tests  
-Task 3 — Train PPO  
-Task 4 — Visualization  
-Task 5 — MP4 Generation  
-Task 6 — Development  
-
-------------------------------------------
-END OF FILE
+> a structured engineering system designed to simulate, understand, and eventually control 
