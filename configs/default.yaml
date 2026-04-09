@@ -56,7 +56,9 @@ clogging:
 
   # Core deposition dynamics
   dep_base: 1.0e-3       # baseline deposition coefficient [AU / (L/min · s)]
-  dep_exponent: 2.0      # nonlinear self-acceleration exponent
+  dep_exponent: 2.0      # nonlinear exponent. KNOWN CALIBRATION ISSUE (M1.5):
+                         #   =2 → bistable; filter won't foul from clean reset.
+                         #   =1 → monotone growth from zero; recommended for RL training.
   shear_coeff: 5.0e-3    # passive shear removal coefficient [1/s]
   shear_Q_ref: 15.0      # reference flow for shear scaling [L/min]
   eps: 1.0e-8

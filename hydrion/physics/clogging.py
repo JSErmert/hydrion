@@ -46,6 +46,13 @@ class CloggingParams:
 
     # --- Core deposition dynamics ---
     dep_base:      float = 1e-3
+    # dep_exponent=2 creates BISTABLE kinetics: each stage has an unstable fixed
+    # point ff_u = shear_coeff / (dep_rate * dep_base * Q_ref).  Below ff_u the
+    # stage self-cleans to zero; above it fouling accelerates to saturation.
+    # Fixed points at default params: Stage 1 ≈ 0.67, Stage 2 ≈ 0.42, Stage 3 ≈ 0.22.
+    # Consequence: the filter will NOT foul from a perfectly clean reset without a
+    # seed perturbation above ff_u.  For monotone growth from clean state,
+    # set dep_exponent=1.0 (linear; ff_ss → ∞, saturates at 1.0 via clip).
     dep_exponent:  float = 2.0
     shear_coeff:   float = 5e-3
     shear_Q_ref:   float = 15.0
@@ -416,7 +423,10 @@ class CloggingModel:
         recoverable  = max(fouling_frac - irreversible, 0.0)
 
         # ---- Deposition ----
-        # Total rate; nonlinear acceleration via (fouling_frac + eps)^dep_exponent
+        # Total rate; nonlinear via (fouling_frac + eps)^dep_exponent.
+        # With dep_exponent=2 this term is ≈0 at clean state (bistable — see
+        # CloggingParams.dep_exponent docstring).  With dep_exponent=1 it produces
+        # a constant background rate even at ff=0.
         dep_total = (
             dep_rate * p.dep_base
             * Q_Lmin * C_fibers
