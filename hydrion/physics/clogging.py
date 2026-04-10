@@ -200,7 +200,9 @@ class CloggingModel:
         p = self.params
 
         # ---- Driving conditions ----
-        Q_Lmin  = max(float(state.get("Q_out_Lmin", state.get("flow", 0.0))), 0.0)
+        Q_Lmin  = max(float(state.get("q_processed_lmin",
+                          state.get("Q_out_Lmin",
+                          state.get("flow", 0.0)))), 0.0)
         C_fibers = float(state.get("C_fibers", 1.0))
 
         # ---- Backflush state (written by env.py before this call) ----
