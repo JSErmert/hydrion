@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import HeaderBar from './layout/HeaderBar';
 import TopTelemetryBand from './components/TopTelemetryBand';
-import MachineCore from './components/MachineCore';
+import ConicalCascadeView from './components/ConicalCascadeView';
 import BottomNarrativeBand from './components/BottomNarrativeBand';
 import RightAdvisoryPanel from './components/RightAdvisoryPanel';
 import PlaybackBar from './components/PlaybackBar';
@@ -63,7 +63,7 @@ export default function App() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
         {/* Machine SVG (dominant) */}
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-          <MachineCore state={displayState} />
+          <ConicalCascadeView state={displayState} />
         </div>
 
         {/* Right Advisory Panel */}
