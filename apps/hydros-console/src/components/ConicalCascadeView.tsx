@@ -279,6 +279,28 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
         />
       ))}
 
+      {/* ── PARTICLE STREAMS + DENSITY SPLIT CUE ────────────────────── */}
+      {STAGES.map((stg, i) => {
+        // Concentration entering this stage decreases through cascade
+        const etaArr   = [s?.etaS1 ?? 0, s?.etaS2 ?? 0, s?.etaS3 ?? 0];
+        const survival = etaArr.slice(0, i).reduce((acc, e) => acc * (1 - e), 1);
+        const conc     = (s?.clog ?? 0.5) * survival;
+        return (
+          <ParticleStream
+            key={`ps-${stg.label}`}
+            xStart={stg.xStart}
+            xEnd={stg.xEnd}
+            apexX={stg.apexX}
+            apexY={stg.apexY}
+            conc={conc}
+            etaPP={s?.etaPP ?? 0}
+            etaPET={s?.etaPET ?? 0}
+            color={stg.color}
+            seed={i + 1}
+          />
+        );
+      })}
+
       {/* ── INLET FACE OVALS ────────────────────────────────────────── */}
       {INLET_OVALS.map(({ cx, stroke }) => (
         <g key={cx}>
