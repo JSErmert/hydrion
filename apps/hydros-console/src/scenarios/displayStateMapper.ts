@@ -32,7 +32,21 @@ export interface HydrosDisplayState {
   clog: number;        // 0..1  (truth_state.clog / mesh_loading_avg)
   eField: number;      // 0..1  (truth_state.E_norm)
   backflush: number;   // 0..1  (truth_state.bf_active)
-  storageFill: number; // 0..1  (not tracked — 0)
+  storageFill: number; // 0..1  storage chamber fill level
+
+  // M5 ConicalCascade — per-stage accumulation and efficiency
+  channelFillS1: number;   // [0,1] particle volume fraction in S1 collection channel
+  channelFillS2: number;
+  channelFillS3: number;
+  etaS1: number;           // [0,1] S1 stage capture efficiency (PET representative)
+  etaS2: number;
+  etaS3: number;           // always >= etaS1 by design (asymmetric stages)
+  vCritNorm: number;       // v_crit_s3 / OBS_VCRIT_MAX normalised to [0,1]
+  etaPP: number;           // [0,1] buoyant species (PP) efficiency — drives density split cue
+  etaPET: number;          // [0,1] dense species (PET) efficiency
+  flushActiveS1: boolean;  // hydraulic flush active on S1 channel
+  flushActiveS2: boolean;
+  flushActiveS3: boolean;
 
   // Raw physical values (for display)
   q_processed_lmin: number;  // Q_out_Lmin or commanded fallback
@@ -164,7 +178,20 @@ export function mapStepRecordToDisplayState(step: ScenarioStepRecord): HydrosDis
     clog,
     eField: clamp01(ts['E_norm']),
     backflush,
-    storageFill: 0.0,
+    storageFill: clamp01(ts['storage_fill']),
+
+    channelFillS1: clamp01(ts['channel_fill_s1']),
+    channelFillS2: clamp01(ts['channel_fill_s2']),
+    channelFillS3: clamp01(ts['channel_fill_s3']),
+    etaS1: clamp01(ts['eta_s1']),
+    etaS2: clamp01(ts['eta_s2']),
+    etaS3: clamp01(ts['eta_s3']),
+    vCritNorm: clamp01((ts['v_crit_s3'] ?? 0) / 0.10),
+    etaPP:  clamp01(ts['eta_PP']),
+    etaPET: clamp01(ts['eta_PET']),
+    flushActiveS1: (ts['flush_active_s1'] ?? 0) > 0.5,
+    flushActiveS2: (ts['flush_active_s2'] ?? 0) > 0.5,
+    flushActiveS3: (ts['flush_active_s3'] ?? 0) > 0.5,
 
     q_processed_lmin,
     pressureKpa,
