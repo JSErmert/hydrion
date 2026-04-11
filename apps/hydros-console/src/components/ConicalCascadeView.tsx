@@ -122,6 +122,15 @@ function ParticleStream({
   return <>{dots}</>;
 }
 
+function FlowArrow({ x, y, opacity }: { x: number; y: number; opacity: number }) {
+  return (
+    <path
+      d={`M${x - 6},${y - 4} L${x + 6},${y} L${x - 6},${y + 4}`}
+      fill="none" stroke="#38BDF8" strokeWidth={1.5} opacity={opacity}
+    />
+  );
+}
+
 interface ConicalCascadeViewProps {
   state: HydrosDisplayState | null;
 }
@@ -246,6 +255,17 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
       <text x={20} y={52} textAnchor="middle" fill="#5A90B0" fontSize={8} fontFamily={FONT}>IN</text>
       <text x={20} y={62} textAnchor="middle" fill="#3A7898" fontSize={6.5} fontFamily={FONT}>water</text>
 
+      {/* ── FLOW VELOCITY INDICATORS ────────────────────────────────── */}
+      {(() => {
+        const flow = s?.flow ?? 0;
+        if (flow < 0.05) return null;
+        const op = 0.2 + flow * 0.5;
+        const arrowXs = [77, 207, 395, 583];  // POL zone + S1/S2/S3 bore
+        return arrowXs.map(x => (
+          <FlowArrow key={x} x={x} y={CY} opacity={op} />
+        ));
+      })()}
+
       {/* ── POLARISATION ZONE x=36–118 ──────────────────────────────── */}
       <rect x={36} y={64} width={82} height={180} fill="#060F1C" />
       {[54, 68, 82, 96, 110].map(lx => (
@@ -271,8 +291,9 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
             d={`${stg.bezier} ${stg.innerBezier.replace('M', 'C').replace(/M \d+,\d+ /, '')} Z`}
             fill={stg.weave} opacity={0.85}
           />
-          {/* Outer mesh wall — S3 opacity reduced under high flow (dynamic in Task 10) */}
-          <path d={stg.bezier} stroke="#2A5878" strokeWidth={1.8} fill="none" opacity={0.9} />
+          {/* Outer mesh wall — S3 opacity reduced under high flow (degradation cue) */}
+          <path d={stg.bezier} stroke="#2A5878" strokeWidth={1.8} fill="none"
+            opacity={stg.label === 'S3' ? Math.max(0.4, 0.9 - ((s?.flow ?? 0) - 0.8) * 1.5) : 0.9} />
           {/* Stage label above */}
           <text x={(stg.xStart + stg.xEnd) / 2} y={46}
             textAnchor="middle" fill="#5A90B0" fontSize={9} fontFamily={FONT} letterSpacing={2}>
