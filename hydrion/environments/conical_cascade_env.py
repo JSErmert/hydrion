@@ -102,6 +102,13 @@ POLYMER_MIX = {
     # remaining 0.15: neutral/weathered — modelled as average of PP and PET
 }
 
+# ---------------------------------------------------------------------------
+# Accumulation model constants — [DESIGN_DEFAULT], replace with physical specs
+# ---------------------------------------------------------------------------
+_CHANNEL_CAPACITY_M3 = 4e-4   # ~0.4 L per collection channel
+_STORAGE_CAPACITY_M3 = 1.2e-2  # ~12 L detachable storage chamber
+_FLUSH_DRAIN_RATE    = 0.20    # fraction of channel fill drained per bf step
+
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -181,6 +188,10 @@ class ConicalCascadeEnv(gym.Env):
         self._max_steps = int(raw_cfg.get("max_steps", 300))
         self._dt = float(raw_cfg.get("dt", 0.1))
 
+        # Accumulation state — persists across steps, resets on env.reset()
+        self._storage_fill: float       = 0.0
+        self._channel_fill: list[float] = [0.0, 0.0, 0.0]
+
         if seed is not None:
             self.np_random, _ = gym.utils.seeding.np_random(seed)
 
@@ -196,8 +207,11 @@ class ConicalCascadeEnv(gym.Env):
         super().reset(seed=seed)
         self._step = 0
         self._state = {}
+        self._storage_fill = 0.0
+        self._channel_fill = [0.0, 0.0, 0.0]
 
-        self.hydraulics.reset(self._state)
+        self.hydraulics.reset()
+        self._state.update(self.hydraulics.state)
         self.clogging.reset(self._state)
 
         self._state["C_in"]  = 0.7
@@ -208,6 +222,10 @@ class ConicalCascadeEnv(gym.Env):
         self._state["v_crit_s3"]       = 0.0
         self._state["bf_active"]       = 0.0
         self._state["voltage_norm"]    = 0.8
+        self._state["storage_fill"]    = 0.0
+        self._state["channel_fill_s1"] = 0.0
+        self._state["channel_fill_s2"] = 0.0
+        self._state["channel_fill_s3"] = 0.0
 
         return self._obs(), {}
 
@@ -225,7 +243,8 @@ class ConicalCascadeEnv(gym.Env):
         self._state["bf_cmd"]      = float(bf_cmd)
         self._state["voltage_norm"] = float(volt_cmd)
 
-        self.hydraulics.update(self._state, self._dt)
+        self.hydraulics.update(self._state, dt=self._dt, action=action, clogging_model=self.clogging)
+        self._state.update(self.hydraulics.state)
         self.clogging.update(self._state, self._dt)
 
         # M5 capture physics
@@ -282,6 +301,42 @@ class ConicalCascadeEnv(gym.Env):
         self._state["eta_PET"]      = float(results["PET"]["eta_cascade"])
         self._state["C_out"]        = float(np.clip(C_out, 0.0, C_in))
         self._state["v_crit_s3"]    = float(v_crit_s3)
+
+        # ── Accumulation model ────────────────────────────────────────────
+        bf = float(action[2])  # bf_cmd from action vector
+
+        # Each stage captures particles proportional to PET efficiency
+        # (PET = sinking majority species; captures into channel bottom)
+        for i in range(3):
+            if len(results["PET"]["per_stage"]) > i:
+                eta_i    = float(results["PET"]["per_stage"][i]["eta_stage"])
+                captured = eta_i * float(self._state.get("C_in", 0.7)) * Q_m3s * self._dt
+                self._channel_fill[i] = float(np.clip(
+                    self._channel_fill[i] + captured / _CHANNEL_CAPACITY_M3,
+                    0.0, 1.0,
+                ))
+
+        # bf_cmd > 0.5: drain channels into storage at FLUSH_DRAIN_RATE per step
+        if bf > 0.5:
+            for i in range(3):
+                drained = self._channel_fill[i] * _FLUSH_DRAIN_RATE
+                self._storage_fill = float(np.clip(
+                    self._storage_fill
+                    + drained * (_CHANNEL_CAPACITY_M3 / _STORAGE_CAPACITY_M3),
+                    0.0, 1.0,
+                ))
+                self._channel_fill[i] = max(0.0, self._channel_fill[i] - drained)
+            flush_flag = 1.0
+        else:
+            flush_flag = 0.0
+
+        self._state["storage_fill"]    = self._storage_fill
+        self._state["channel_fill_s1"] = self._channel_fill[0]
+        self._state["channel_fill_s2"] = self._channel_fill[1]
+        self._state["channel_fill_s3"] = self._channel_fill[2]
+        self._state["flush_active_s1"] = flush_flag
+        self._state["flush_active_s2"] = flush_flag
+        self._state["flush_active_s3"] = flush_flag
 
         # Polarization zone diagnostics (PP — hardest to polarise quickly)
         pol_pp = self.pol_zone.state_dict(PP, Q_m3s)
