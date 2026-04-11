@@ -214,6 +214,11 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
             100% { transform: translateX(-60px);  opacity: 0;    }
           }
           .bf-sweep { animation: bfSweep 1.4s linear infinite; }
+          @keyframes swapPulse {
+            0%, 100% { opacity: 1.0; }
+            50%       { opacity: 0.45; }
+          }
+          .swap-warn { animation: swapPulse 1.8s ease-in-out infinite; }
         `}</style>
       </defs>
 
@@ -356,11 +361,40 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
       <text x={770} y={304} textAnchor="middle" fill="#5A8AAA"
         fontSize={6} fontFamily={FONT}>particle accumulation</text>
 
-      {/* Fill sensor (static structure — dynamic fill wired in Task 9) */}
-      <rect x={847} y={253} width={7} height={66} rx={1.5}
-        fill="#010608" stroke="#5A8AAA" strokeWidth={0.7} />
-      <text x={851} y={251} textAnchor="middle" fill="#5A8AAA"
-        fontSize={5.5} fontFamily={FONT}>FILL</text>
+      {/* ── STORAGE FILL SENSOR ─────────────────────────────────────── */}
+      {(() => {
+        const fill   = s?.storageFill ?? 0;
+        const barH   = 66;
+        const fillH  = Math.round(fill * barH);
+        const atWarn = fill >= 0.8;
+        const warnY  = 253 + barH * 0.2;   // 80% threshold marker (20% from top)
+        return (
+          <g>
+            {/* Sensor housing */}
+            <rect x={847} y={253} width={7} height={barH} rx={1.5}
+              fill="#010608" stroke="#5A8AAA" strokeWidth={0.7} />
+            {/* Green fill (rises from bottom) */}
+            {fillH > 0 && (
+              <rect x={848} y={253 + barH - fillH} width={5} height={fillH} rx={1}
+                fill={atWarn ? '#F59E0B' : '#22C55E'} opacity={0.7} />
+            )}
+            {/* Threshold marker at 80% */}
+            <line x1={843} y1={warnY} x2={856} y2={warnY}
+              stroke="#F59E0B" strokeWidth={1}
+              opacity={atWarn ? 1.0 : 0.55} />
+            <circle cx={858} cy={warnY} r={2.5}
+              fill="#F59E0B" opacity={atWarn ? 1.0 : 0.5} />
+            {/* Labels */}
+            <text x={851} y={251} textAnchor="middle" fill="#5A8AAA"
+              fontSize={5.5} fontFamily={FONT}>FILL</text>
+            <text x={841} y={warnY + 4} textAnchor="end" fill="#F59E0B"
+              fontSize={5.5} fontFamily={FONT}
+              className={atWarn ? 'swap-warn' : undefined}>
+              ⚠ 80% swap
+            </text>
+          </g>
+        );
+      })()}
 
       {/* ── OUT TUBE ────────────────────────────────────────────────── */}
       <ellipse cx={886} cy={CY} rx={6} ry={90}
@@ -510,8 +544,9 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
       ))}
 
       {/* ── MODE ANNOTATION ─────────────────────────────────────────── */}
-      <text x={800} y={340} textAnchor="middle" fill="#F59E0B"
-        fontSize={6.5} fontFamily={FONT} letterSpacing={0.3}>
+      <text x={800} y={340} textAnchor="middle"
+        fill="#F59E0B" fontSize={6.5} fontFamily={FONT} letterSpacing={0.3}
+        className={(s?.storageFill ?? 0) >= 0.8 ? 'swap-warn' : undefined}>
         M1: flush → detach  ·  M2: detach → install fresh → bf_cmd
       </text>
     </svg>
