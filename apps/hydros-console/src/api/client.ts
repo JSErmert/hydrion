@@ -35,6 +35,8 @@ import type {
   RunManifest,
   SpineStep,
   RunMetrics,
+  ScenarioInfo,
+  ScenarioExecutionHistory,
   ApiError,
   Result,
 } from './types';
@@ -219,5 +221,40 @@ export async function getMetrics(
     `/api/runs/${encodeURIComponent(runId)}/metrics`,
     { method: 'GET' },
     ARTIFACT_TIMEOUT_MS,
+  );
+}
+
+/**
+ * GET /api/scenarios
+ *
+ * Returns metadata for all available scenario YAML files discovered under
+ * hydrion/scenarios/examples/. Used to populate the scenario selector.
+ */
+export async function listScenarios(): Promise<Result<ScenarioInfo[]>> {
+  return fetchJson<ScenarioInfo[]>(
+    '/api/scenarios',
+    { method: 'GET' },
+    ARTIFACT_TIMEOUT_MS,
+  );
+}
+
+/**
+ * POST /api/scenarios/run
+ *
+ * Executes the named scenario end-to-end on the backend and returns the
+ * complete ScenarioExecutionHistory.  Execution is synchronous — this call
+ * blocks until the simulation completes.
+ */
+export async function runScenario(
+  scenarioId: string,
+): Promise<Result<ScenarioExecutionHistory>> {
+  return fetchJson<ScenarioExecutionHistory>(
+    '/api/scenarios/run',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: scenarioId }),
+    },
+    DEFAULT_TIMEOUT_MS,
   );
 }

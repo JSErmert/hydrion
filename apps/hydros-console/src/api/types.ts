@@ -151,6 +151,59 @@ export interface RunMetrics {
 }
 
 // ---------------------------------------------------------------------------
+// Scenario types — from GET /api/scenarios and POST /api/scenarios/run
+//
+// These types mirror the Python ScenarioExecutionHistory dataclass from
+// hydrion/scenarios/types.py.  truthState and sensorState are kept as
+// opaque Record<string, number> to match the flat dict pattern from the
+// Python runner — identical governance to SpineTruth/SpineSensors separation.
+// ---------------------------------------------------------------------------
+
+/** Metadata for one available scenario file. */
+export interface ScenarioInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ScenarioInputsRecord {
+  flowLmin: number;
+  particleDensity: number;
+  activeDisturbances: Array<{ type: string; intensity: number }>;
+}
+
+/** One runtime step from a scenario execution. */
+export interface ScenarioStepRecord {
+  t: number;
+  stepIndex: number;
+  scenarioInputs: ScenarioInputsRecord;
+  /** Physics truth state from env.truth_state — authoritative, not observed. */
+  truthState: Record<string, number>;
+  /** Sensor state from env.sensor_state — observational, may contain noise. */
+  sensorState: Record<string, number>;
+  reward: number;
+  done: boolean;
+  info: Record<string, unknown>;
+}
+
+export interface ScenarioEventMarker {
+  time: number;
+  /** Marker type: scenario_start | scenario_end | threshold_crossing |
+   *  backflush_start | backflush_end | bypass_start | bypass_end |
+   *  disturbance_start | disturbance_end */
+  type: string;
+  label: string;
+  meta: Record<string, unknown>;
+}
+
+export interface ScenarioExecutionHistory {
+  scenarioId: string;
+  dt: number;
+  steps: ScenarioStepRecord[];
+  eventMarkers: ScenarioEventMarker[];
+}
+
+// ---------------------------------------------------------------------------
 // ApiError — structured error returned by all client functions
 // ---------------------------------------------------------------------------
 

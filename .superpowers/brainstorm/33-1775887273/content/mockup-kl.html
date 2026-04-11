@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HydrOS — Mockup KL</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: #020508;
+  color: #CBD5E1;
+  font-family: "JetBrains Mono","Fira Code","Courier New",monospace;
+  font-size: 11px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── HEADER ── */
+.header {
+  height: 30px;
+  background: linear-gradient(180deg, #080F1E 0%, #060B16 100%);
+  border-bottom: 1px solid #0F1E30;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.logo { font-size: 13px; font-weight: 700; color: #38BDF8; letter-spacing: 0.14em; }
+.logo span { color: #1E4A6B; font-weight: 400; }
+.header-meta { color: #334155; font-size: 10px; display: flex; gap: 18px; align-items: center; }
+.live-dot { color: #34D399; }
+.live-dot::before { content: "● "; font-size: 8px; }
+
+/* ── TELEMETRY BAND ── */
+.telemetry {
+  height: 40px;
+  background: #040810;
+  border-bottom: 1px solid #0D1B2A;
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+.tel-item {
+  padding: 0 18px;
+  border-right: 1px solid #0D1B2A;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+}
+.tel-label { font-size: 8px; color: #334155; letter-spacing: 0.1em; text-transform: uppercase; }
+.tel-value { font-size: 14px; font-weight: 700; letter-spacing: 0.01em; }
+.c-cyan   { color: #38BDF8; }
+.c-white  { color: #E2E8F0; }
+.c-amber  { color: #FBBF24; }
+.c-green  { color: #34D399; }
+.c-slate  { color: #64748B; }
+.tel-unit { font-size: 9px; font-weight: 400; opacity: 0.6; }
+.tel-spacer { flex: 1; }
+.tel-cmds {
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-left: 1px solid #0D1B2A;
+}
+.cmd-item { display: flex; flex-direction: column; gap: 2px; align-items: center; }
+.cmd-label { font-size: 8px; color: #1E3A5F; letter-spacing: 0.08em; }
+.cmd-bar-track { width: 28px; height: 3px; background: #0D1B2A; border-radius: 2px; overflow: hidden; }
+.cmd-bar { height: 100%; border-radius: 2px; background: #38BDF8; }
+
+/* ── MAIN ── */
+.main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── MACHINE CORE ── */
+.machine-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(ellipse 90% 70% at 50% 45%, #061428 0%, #020508 70%);
+}
+
+/* ── RIGHT PANEL ── */
+.right-panel {
+  width: 210px;
+  background: linear-gradient(180deg, #040A15 0%, #030810 100%);
+  border-left: 1px solid #0D1B2A;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.p-sect {
+  border-bottom: 1px solid #0D1B2A;
+  padding: 10px 12px;
+}
+.p-sect-last {
+  padding: 10px 12px;
+  flex: 1;
+}
+.p-label {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #1E3A5F;
+  margin-bottom: 9px;
+}
+
+/* ── η BLOCK ── */
+.eta-block {
+  border-bottom: 1px solid #0D1B2A;
+  padding: 11px 12px 13px;
+  background: linear-gradient(180deg, #050D1C 0%, #040A15 100%);
+  position: relative;
+}
+.eta-block::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #0E7490 30%, #38BDF8 50%, #0E7490 70%, transparent);
+  opacity: 0.6;
+}
+.eta-block-label {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #1E3A5F;
+  margin-bottom: 9px;
+}
+
+.eta-ref-group { margin-bottom: 9px; }
+.eta-ref-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.eta-ref-tag  { font-size: 8px; color: #1E3A5F; letter-spacing: 0.06em; }
+.eta-ref-val  { font-size: 14px; color: #2D5A7A; font-weight: 700; }
+.eta-ref-qual {
+  font-size: 8.5px;
+  color: #1A3A50;
+  letter-spacing: 0.01em;
+  padding-left: 2px;
+  line-height: 1.3;
+}
+
+.eta-live-group { margin-bottom: 9px; }
+.eta-live-tag { font-size: 8px; color: #334155; letter-spacing: 0.06em; margin-bottom: 2px; }
+.eta-live-val {
+  font-size: 38px;
+  font-weight: 700;
+  color: #F0F9FF;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  text-shadow:
+    0 0 30px rgba(56,189,248,0.35),
+    0 0 60px rgba(56,189,248,0.15);
+}
+.eta-live-val .pct { font-size: 20px; color: #7DDAF5; font-weight: 400; }
+
+.eta-delta-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 9px;
+  background: #040C1A;
+  border: 1px solid #132236;
+  border-radius: 3px;
+}
+.eta-delta-nums { display: flex; flex-direction: column; gap: 1px; }
+.eta-delta-tag { font-size: 7.5px; color: #1E3A5F; letter-spacing: 0.08em; }
+.eta-delta-val { font-size: 14px; font-weight: 700; color: #FB923C; }
+.eta-cause-chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #FB923C;
+  background: rgba(251,146,60,0.08);
+  border: 1px solid rgba(251,146,60,0.2);
+  padding: 3px 8px;
+  border-radius: 2px;
+}
+
+/* ── FOULING BARS ── */
+.ff-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.ff-stage { font-size: 8.5px; color: #334155; }
+.ff-val   { font-size: 8.5px; }
+.ff-track {
+  height: 2px;
+  background: #0A1525;
+  border-radius: 1px;
+  margin-bottom: 5px;
+  overflow: hidden;
+}
+.ff-fill { height: 100%; border-radius: 1px; }
+
+/* ── ADVISORY ── */
+.adv-item {
+  display: flex;
+  gap: 7px;
+  margin-bottom: 7px;
+  align-items: flex-start;
+}
+.adv-icon  { font-size: 9px; flex-shrink: 0; margin-top: 1px; }
+.adv-text  { font-size: 9.5px; color: #334155; line-height: 1.45; }
+.adv-text strong { color: #475569; }
+
+/* ── NARRATIVE BAND ── */
+.narrative {
+  height: 28px;
+  background: #030710;
+  border-top: 1px solid #0D1B2A;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 0;
+  flex-shrink: 0;
+}
+.narr-seg {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 14px;
+  border-right: 1px solid #0D1B2A;
+}
+.narr-seg:first-child { padding-left: 0; }
+.narr-s-label { font-size: 9px; color: #1E3A5F; }
+.narr-s-val   { font-size: 10px; font-weight: 600; }
+.narr-buoyant { margin-left: auto; font-size: 9px; color: #1A3A50; }
+.narr-buoyant span { color: #164E63; }
+
+/* ── PLAYBACK ── */
+.playback {
+  height: 36px;
+  background: #030710;
+  border-top: 1px solid #0A1525;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.pb-btn {
+  width: 20px; height: 20px;
+  border: 1px solid #0F1E30;
+  background: #060C18;
+  color: #334155;
+  border-radius: 2px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; cursor: pointer; flex-shrink: 0;
+}
+.pb-btn.play { color: #38BDF8; border-color: #0E4863; }
+.pb-tl {
+  flex: 1;
+  height: 3px;
+  background: #0A1525;
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+.pb-prog { width: 47%; height: 100%; background: linear-gradient(90deg, #0E4863, #38BDF8); border-radius: 2px; opacity: 0.7; }
+.pb-time { font-size: 9px; color: #1E3A5F; white-space: nowrap; }
+.pb-scenario {
+  font-size: 9px; color: #1E3A5F;
+  border: 1px solid #0F1E30;
+  padding: 2px 8px; border-radius: 2px; background: #060C18;
+}
+.pb-run {
+  font-size: 9px; color: #0E7490;
+  border: 1px solid #0E4863;
+  padding: 2px 10px; border-radius: 2px; background: #040E1C;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo">Hydr<span>OS</span></div>
+  <div class="header-meta">
+    <span>baseline_nominal</span>
+    <span class="live-dot">LIVE</span>
+    <span style="color:#0D1B2A">|</span>
+    <span>step 47 / 300</span>
+    <span style="color:#0D1B2A">|</span>
+    <span>t = 4.7 s</span>
+  </div>
+</div>
+
+<!-- TELEMETRY BAND -->
+<div class="telemetry">
+  <div class="tel-item">
+    <div class="tel-label">Flow</div>
+    <div class="tel-value c-cyan">13.5 <span class="tel-unit">L/min</span></div>
+  </div>
+  <div class="tel-item">
+    <div class="tel-label">Pressure</div>
+    <div class="tel-value c-white">42 <span class="tel-unit">kPa</span></div>
+  </div>
+  <div class="tel-item">
+    <div class="tel-label">Clog avg</div>
+    <div class="tel-value c-amber">18 <span class="tel-unit">%</span></div>
+  </div>
+  <div class="tel-item">
+    <div class="tel-label">E-Field</div>
+    <div class="tel-value c-cyan">12.4 <span class="tel-unit">kV/m</span></div>
+  </div>
+  <div class="tel-item">
+    <div class="tel-label">C_out</div>
+    <div class="tel-value c-green">0.19</div>
+  </div>
+  <div class="tel-spacer"></div>
+  <div class="tel-cmds">
+    <div class="cmd-item">
+      <div class="cmd-label">VALVE</div>
+      <div class="cmd-bar-track"><div class="cmd-bar" style="width:70%"></div></div>
+    </div>
+    <div class="cmd-item">
+      <div class="cmd-label">PUMP</div>
+      <div class="cmd-bar-track"><div class="cmd-bar" style="width:90%"></div></div>
+    </div>
+    <div class="cmd-item">
+      <div class="cmd-label">BF</div>
+      <div class="cmd-bar-track"><div class="cmd-bar" style="width:0%"></div></div>
+    </div>
+    <div class="cmd-item">
+      <div class="cmd-label">VOLT</div>
+      <div class="cmd-bar-track"><div class="cmd-bar" style="width:80%; background:#818CF8;"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- MACHINE SVG — K's physical depth + L's capture information -->
+  <div class="machine-wrap">
+    <svg viewBox="0 0 900 300" width="100%" height="100%" style="max-height:100%; display:block;">
+      <defs>
+
+        <!-- Deep background vignette (K's atmosphere) -->
+        <radialGradient id="bg-vignette" cx="50%" cy="45%" r="60%">
+          <stop offset="0%"   stop-color="#071428"/>
+          <stop offset="100%" stop-color="#020508"/>
+        </radialGradient>
+
+        <!-- Stage body gradients — K's cylindrical depth -->
+        <linearGradient id="stage-body-s1" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="#0C1E35"/>
+          <stop offset="40%"  stop-color="#102540"/>
+          <stop offset="100%" stop-color="#081A30"/>
+        </linearGradient>
+        <linearGradient id="stage-body-s2" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="#0C1E35"/>
+          <stop offset="40%"  stop-color="#102540"/>
+          <stop offset="100%" stop-color="#081A30"/>
+        </linearGradient>
+        <!-- S3 has cyan tint to signal dominance -->
+        <linearGradient id="stage-body-s3" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="#071E38"/>
+          <stop offset="40%"  stop-color="#0B2D4A"/>
+          <stop offset="100%" stop-color="#061A34"/>
+        </linearGradient>
+
+        <!-- Stage top edge highlight (K's 3D rim light) -->
+        <linearGradient id="rim-s1" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="#1E4A7A" stop-opacity="0"/>
+          <stop offset="50%"  stop-color="#2D6A9A" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#1E4A7A" stop-opacity="0"/>
+        </linearGradient>
+        <linearGradient id="rim-s3" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%"   stop-color="#0E7490" stop-opacity="0"/>
+          <stop offset="50%"  stop-color="#38BDF8" stop-opacity="0.8"/>
+          <stop offset="100%" stop-color="#0E7490" stop-opacity="0"/>
+        </linearGradient>
+
+        <!-- Fouling fills -->
+        <linearGradient id="foul-s1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#D97706" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#92400E" stop-opacity="0.85"/>
+        </linearGradient>
+        <linearGradient id="foul-s2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#FBBF24" stop-opacity="0.6"/>
+          <stop offset="100%" stop-color="#D97706" stop-opacity="0.9"/>
+        </linearGradient>
+        <linearGradient id="foul-s3" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#FB923C" stop-opacity="0.65"/>
+          <stop offset="100%" stop-color="#C2410C" stop-opacity="0.95"/>
+        </linearGradient>
+
+        <!-- Pipe gradient (K's thick industrial pipe) -->
+        <linearGradient id="pipe" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#0E4863" stop-opacity="0.9"/>
+          <stop offset="30%"  stop-color="#164E74"/>
+          <stop offset="70%"  stop-color="#164E74"/>
+          <stop offset="100%" stop-color="#0A3A52" stop-opacity="0.9"/>
+        </linearGradient>
+        <linearGradient id="pipe-shine" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#38BDF8" stop-opacity="0.35"/>
+          <stop offset="100%" stop-color="#38BDF8" stop-opacity="0"/>
+        </linearGradient>
+
+        <!-- E-field radial gradient across the stage zone -->
+        <radialGradient id="efield" cx="62%" cy="50%" r="45%">
+          <stop offset="0%"   stop-color="#6366F1" stop-opacity="0.12"/>
+          <stop offset="60%"  stop-color="#4F46E5" stop-opacity="0.06"/>
+          <stop offset="100%" stop-color="#6366F1" stop-opacity="0"/>
+        </radialGradient>
+
+        <!-- Capture badge bg (L's info architecture) -->
+        <linearGradient id="cap-badge-bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#060F1E"/>
+          <stop offset="100%" stop-color="#040A16"/>
+        </linearGradient>
+        <linearGradient id="cap-badge-s3" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="#061828"/>
+          <stop offset="100%" stop-color="#040F1E"/>
+        </linearGradient>
+
+        <!-- S3 glow filter -->
+        <filter id="glow-s3" x="-25%" y="-25%" width="150%" height="150%">
+          <feGaussianBlur stdDeviation="5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="glow-pipe" x="-10%" y="-50%" width="120%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="text-glow" x="-20%" y="-40%" width="140%" height="180%">
+          <feGaussianBlur stdDeviation="3.5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+
+      </defs>
+
+      <!-- BG -->
+      <rect width="900" height="300" fill="url(#bg-vignette)"/>
+
+      <!-- E-field atmospheric wash -->
+      <rect x="140" y="30" width="620" height="230" fill="url(#efield)" rx="8"/>
+
+      <!-- ─── INLET ─── -->
+      <text x="44" y="153" fill="#1E3A5F" font-size="8" font-family="JetBrains Mono,monospace" letter-spacing="0.1em">INLET</text>
+
+      <!-- ─── OUTLET ─── -->
+      <text x="818" y="153" fill="#1E3A5F" font-size="8" font-family="JetBrains Mono,monospace" letter-spacing="0.08em">OUT</text>
+
+      <!-- ─── PIPE segments (K's thick industrial style) ─── -->
+      <!-- Left pipe -->
+      <rect x="44" y="124" width="116" height="22" fill="url(#pipe)" rx="2"/>
+      <rect x="44" y="124" width="116" height="5"  fill="url(#pipe-shine)" rx="2"/>
+      <rect x="44" y="124" width="116" height="22" rx="2" fill="none" stroke="#0E4863" stroke-width="1"/>
+
+      <!-- S1-S2 pipe -->
+      <rect x="290" y="124" width="90" height="22" fill="url(#pipe)" rx="2"/>
+      <rect x="290" y="124" width="90" height="5"  fill="url(#pipe-shine)" rx="2"/>
+      <rect x="290" y="124" width="90" height="22" rx="2" fill="none" stroke="#0E4863" stroke-width="1"/>
+
+      <!-- S2-S3 pipe -->
+      <rect x="500" y="124" width="90" height="22" fill="url(#pipe)" rx="2"/>
+      <rect x="500" y="124" width="90" height="5"  fill="url(#pipe-shine)" rx="2"/>
+      <rect x="500" y="124" width="90" height="22" rx="2" fill="none" stroke="#0E4863" stroke-width="1"/>
+
+      <!-- S3-outlet pipe -->
+      <rect x="710" y="124" width="108" height="22" fill="url(#pipe)" rx="2"/>
+      <rect x="710" y="124" width="108" height="5"  fill="url(#pipe-shine)" rx="2"/>
+      <rect x="710" y="124" width="108" height="22" rx="2" fill="none" stroke="#0E4863" stroke-width="1"/>
+
+      <!-- Flow arrows (animated feel via spacing) -->
+      <g filter="url(#glow-pipe)">
+        <path d="M82,128 L94,135 L82,142"  fill="none" stroke="#38BDF8" stroke-width="1.8" opacity="0.65"/>
+        <path d="M322,128 L334,135 L322,142" fill="none" stroke="#38BDF8" stroke-width="1.8" opacity="0.65"/>
+        <path d="M532,128 L544,135 L532,142" fill="none" stroke="#38BDF8" stroke-width="1.8" opacity="0.65"/>
+        <path d="M750,128 L762,135 L750,142" fill="none" stroke="#38BDF8" stroke-width="1.8" opacity="0.65"/>
+      </g>
+
+      <!-- ─── STAGE 1 (coarse 500µm) — K depth + L info ─── -->
+      <!-- Shadow/depth behind stage -->
+      <rect x="153" y="58" width="140" height="166" rx="5" fill="#020508" opacity="0.5"/>
+      <!-- Stage body -->
+      <rect x="160" y="55" width="130" height="160" fill="url(#stage-body-s1)" rx="4" stroke="#1E3A5F" stroke-width="1"/>
+      <!-- Fouling fill (15%, bottom-anchored) -->
+      <rect x="161" y="191" width="128" height="23" fill="url(#foul-s1)"/>
+      <rect x="161" y="210" width="128" height="4"  rx="0 0 4px 4px" fill="#92400E" opacity="0.4"/>
+      <!-- Top rim light (K's 3D) -->
+      <rect x="160" y="55" width="130" height="3" fill="url(#rim-s1)" rx="4"/>
+      <!-- Side highlight -->
+      <rect x="160" y="55" width="2" height="160" rx="2" fill="#1E4A7A" opacity="0.4"/>
+      <!-- Header band -->
+      <rect x="160" y="55" width="130" height="26" fill="#0A1A2E" rx="4" opacity="0.6"/>
+
+      <text x="225" y="71"  fill="#334155" font-size="9"  font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="0.12em">COARSE</text>
+      <text x="225" y="90"  fill="#4A6080" font-size="11" font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="700" letter-spacing="0.06em">S1</text>
+      <text x="225" y="103" fill="#1E3A5F" font-size="8"  font-family="JetBrains Mono,monospace" text-anchor="middle">500 µm</text>
+
+      <!-- Capture badge (L's per-stage info) -->
+      <rect x="177" y="115" width="96" height="30" rx="2" fill="url(#cap-badge-bg)" stroke="#0F1E30" stroke-width="1"/>
+      <text x="225" y="127" fill="#1E3A5F" font-size="7.5" font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="0.1em">CAPTURE</text>
+      <text x="225" y="140" fill="#2A4A6A" font-size="12"  font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="700">0.3%</text>
+
+      <!-- Fouling % -->
+      <text x="225" y="186" fill="#D97706" font-size="12" font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="600">15%</text>
+
+      <!-- Downward collection tube (L's correct topology) -->
+      <line x1="225" y1="215" x2="225" y2="238" stroke="#D97706" stroke-width="1.5" opacity="0.25"/>
+      <polygon points="221,238 229,238 225,246" fill="#D97706" opacity="0.15"/>
+
+      <!-- ─── STAGE 2 (medium 100µm) ─── -->
+      <rect x="373" y="58" width="140" height="166" rx="5" fill="#020508" opacity="0.5"/>
+      <rect x="380" y="55" width="130" height="160" fill="url(#stage-body-s2)" rx="4" stroke="#1E3A5F" stroke-width="1"/>
+      <rect x="381" y="191" width="128" height="23" fill="url(#foul-s2)"/>
+      <rect x="381" y="210" width="128" height="4"  rx="0 0 4px 4px" fill="#D97706" opacity="0.4"/>
+      <rect x="380" y="55" width="130" height="3" fill="url(#rim-s1)" rx="4"/>
+      <rect x="380" y="55" width="2" height="160" rx="2" fill="#1E4A7A" opacity="0.4"/>
+      <rect x="380" y="55" width="130" height="26" fill="#0A1A2E" rx="4" opacity="0.6"/>
+
+      <text x="445" y="71"  fill="#334155" font-size="9"  font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="0.12em">MEDIUM</text>
+      <text x="445" y="90"  fill="#4A6080" font-size="11" font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="700" letter-spacing="0.06em">S2</text>
+      <text x="445" y="103" fill="#1E3A5F" font-size="8"  font-family="JetBrains Mono,monospace" text-anchor="middle">100 µm</text>
+
+      <rect x="397" y="115" width="96" height="30" rx="2" fill="url(#cap-badge-bg)" stroke="#0F1E30" stroke-width="1"/>
+      <text x="445" y="127" fill="#1E3A5F" font-size="7.5" font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="0.1em">CAPTURE</text>
+      <text x="445" y="140" fill="#2A4A6A" font-size="12"  font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="700">6.1%</text>
+
+      <text x="445" y="186" fill="#FBBF24" font-size="12" font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="600">22%</text>
+
+      <line x1="445" y1="215" x2="445" y2="238" stroke="#FBBF24" stroke-width="1.5" opacity="0.3"/>
+      <polygon points="441,238 449,238 445,246" fill="#FBBF24" opacity="0.2"/>
+
+      <!-- ─── STAGE 3 (fine 5µm — DOMINANT) ─── -->
+      <!-- Outer glow for S3 dominance -->
+      <rect x="583" y="52" width="140" height="174" rx="6" fill="#38BDF8" opacity="0.025" filter="url(#glow-s3)"/>
+      <rect x="583" y="52" width="140" height="174" rx="6" fill="none" stroke="#0E7490" stroke-width="1" opacity="0.5"/>
+
+      <rect x="590" y="55" width="130" height="160" fill="url(#stage-body-s3)" rx="4" stroke="#164E63" stroke-width="1.5"/>
+      <rect x="591" y="191" width="128" height="23" fill="url(#foul-s3)"/>
+      <rect x="591" y="210" width="128" height="4"  rx="0 0 4px 4px" fill="#C2410C" opacity="0.5"/>
+      <!-- S3 top rim — cyan glow (dominant) -->
+      <rect x="590" y="55" width="130" height="3" fill="url(#rim-s3)" rx="4"/>
+      <rect x="590" y="55" width="2" height="160" rx="2" fill="#0E7490" opacity="0.6"/>
+      <rect x="590" y="55" width="130" height="26" fill="#071828" rx="4" opacity="0.8"/>
+
+      <text x="655" y="71"  fill="#164E63" font-size="9"  font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="0.12em" filter="url(#text-glow)">FINE — PRIMARY</text>
+      <text x="655" y="90"  fill="#67E8F9" font-size="12" font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="700" letter-spacing="0.06em" filter="url(#glow-s3)">S3</text>
+      <text x="655" y="103" fill="#0E4863" font-size="8"  font-family="JetBrains Mono,monospace" text-anchor="middle">5 µm</text>
+
+      <!-- S3 Capture badge — L's dominant display, K's depth -->
+      <rect x="606" y="113" width="98" height="35" rx="3" fill="url(#cap-badge-s3)" stroke="#164E63" stroke-width="1.5"/>
+      <!-- Inner rim on badge -->
+      <rect x="606" y="113" width="98" height="2" rx="2" fill="#0E7490" opacity="0.4"/>
+      <text x="655" y="126" fill="#334155" font-size="7.5" font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="0.1em">CAPTURE</text>
+      <!-- Large dominant value -->
+      <text x="655" y="142" fill="#38BDF8" font-size="17" font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="700" filter="url(#text-glow)">71.2%</text>
+
+      <text x="655" y="186" fill="#FB923C" font-size="12" font-family="JetBrains Mono,monospace" text-anchor="middle" font-weight="600">18%</text>
+
+      <!-- S3 collection tube — dominant (brighter) -->
+      <line x1="655" y1="215" x2="655" y2="240" stroke="#38BDF8" stroke-width="2" opacity="0.4"/>
+      <polygon points="651,240 659,240 655,248" fill="#38BDF8" opacity="0.3"/>
+
+      <!-- E-field radial indicator lines (outer wall → inner rod) -->
+      <path d="M592,57 Q580,135 592,213" fill="none" stroke="#4F46E5" stroke-width="0.75" opacity="0.3" stroke-dasharray="2,4"/>
+      <path d="M718,57 Q730,135 718,213" fill="none" stroke="#4F46E5" stroke-width="0.75" opacity="0.3" stroke-dasharray="2,4"/>
+      <line x1="655" y1="60" x2="655" y2="210" stroke="#6366F1" stroke-width="0.5" opacity="0.15" stroke-dasharray="1,5"/>
+
+      <!-- ─── BACKFLUSH RETURN PATH ─── -->
+      <path d="M710,224 Q710,258 655,258 Q445,258 225,258 Q160,258 160,224"
+            fill="none" stroke="#1A3350" stroke-width="1.2" stroke-dasharray="5,4"/>
+      <text x="440" y="272" fill="#0F1E30" font-size="8" font-family="JetBrains Mono,monospace" text-anchor="middle" letter-spacing="0.08em">BACKFLUSH RETURN — IDLE</text>
+
+    </svg>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="right-panel">
+
+    <!-- η BLOCK -->
+    <div class="eta-block">
+      <div class="eta-block-label">System Efficiency</div>
+
+      <div class="eta-ref-group">
+        <div class="eta-ref-line">
+          <span class="eta-ref-tag">η_ref</span>
+          <span class="eta-ref-val">85.4%</span>
+        </div>
+        <div class="eta-ref-qual">@ 10µm / 13.5 L/min</div>
+      </div>
+
+      <div class="eta-live-group">
+        <div class="eta-live-tag">η_live</div>
+        <div class="eta-live-val">71<span class="pct">.2%</span></div>
+      </div>
+
+      <div class="eta-delta-chip">
+        <div class="eta-delta-nums">
+          <div class="eta-delta-tag">Δη</div>
+          <div class="eta-delta-val">−14.2 pts</div>
+        </div>
+        <div class="eta-cause-chip">FLOW</div>
+      </div>
+    </div>
+
+    <!-- FOULING -->
+    <div class="p-sect">
+      <div class="p-label">Fouling State</div>
+      <div class="ff-row"><span class="ff-stage">S1 · 500µm</span><span class="ff-val c-slate">15%</span></div>
+      <div class="ff-track"><div class="ff-fill" style="width:15%; background:#475569;"></div></div>
+      <div class="ff-row"><span class="ff-stage">S2 · 100µm</span><span class="ff-val c-amber">22%</span></div>
+      <div class="ff-track"><div class="ff-fill" style="width:22%; background:#FBBF24;"></div></div>
+      <div class="ff-row"><span class="ff-stage">S3 · 5µm</span><span class="ff-val" style="color:#FB923C">18%</span></div>
+      <div class="ff-track"><div class="ff-fill" style="width:18%; background:#FB923C;"></div></div>
+    </div>
+
+    <!-- ADVISORY -->
+    <div class="p-sect-last">
+      <div class="p-label">Advisory</div>
+      <div class="adv-item">
+        <span class="adv-icon" style="color:#38BDF8">▲</span>
+        <span class="adv-text"><strong>Flow above onset.</strong> S3 efficiency reduced by flow penalty.</span>
+      </div>
+      <div class="adv-item">
+        <span class="adv-icon" style="color:#34D399">●</span>
+        <span class="adv-text"><strong>Voltage nominal.</strong> E_capture_gain = 0.61</span>
+      </div>
+      <div class="adv-item">
+        <span class="adv-icon" style="color:#1E3A5F">○</span>
+        <span class="adv-text">Backflush cooldown clear.</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- NARRATIVE BAND -->
+<div class="narrative">
+  <div class="narr-seg">
+    <span class="narr-s-label">S1</span>
+    <span class="narr-s-val c-slate">0.3%</span>
+  </div>
+  <div class="narr-seg">
+    <span class="narr-s-label">S2</span>
+    <span class="narr-s-val" style="color:#2D5A7A;">6.1%</span>
+  </div>
+  <div class="narr-seg" style="border-right:none;">
+    <span class="narr-s-label">S3</span>
+    <span class="narr-s-val c-cyan" style="text-shadow:0 0 10px rgba(56,189,248,0.4)">71.2%</span>
+  </div>
+  <div class="narr-buoyant">buoyant pass-through: <span>15%</span>&nbsp;(expected)</div>
+</div>
+
+<!-- PLAYBACK -->
+<div class="playback">
+  <div class="pb-btn">◄◄</div>
+  <div class="pb-btn">◄</div>
+  <div class="pb-btn play">▶</div>
+  <div class="pb-btn">►</div>
+  <div class="pb-btn">1×</div>
+  <div class="pb-tl"><div class="pb-prog"></div></div>
+  <div class="pb-time">47 / 300 · t=4.7s</div>
+  <div class="pb-scenario">baseline_nominal ▾</div>
+  <div class="pb-run">RUN</div>
+</div>
+
+</body>
+</html>

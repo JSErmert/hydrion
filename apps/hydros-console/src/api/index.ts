@@ -26,6 +26,11 @@ export type {
   SpineEvents,
   SpineStep,
   RunMetrics,
+  ScenarioInfo,
+  ScenarioInputsRecord,
+  ScenarioStepRecord,
+  ScenarioEventMarker,
+  ScenarioExecutionHistory,
   ApiError,
   Result,
 } from './types';
@@ -37,4 +42,6 @@ export {
   getManifest,
   getSpine,
   getMetrics,
+  listScenarios,
+  runScenario,
 } from './client';

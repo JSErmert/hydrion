@@ -5,12 +5,15 @@ from pathlib import Path
 from typing import Dict, Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
+import yaml
 
 from hydrion.env import HydrionEnv
 from hydrion.wrappers.shielded_env import ShieldedEnv
 from hydrion.logging import artifacts
+from hydrion.scenarios import ScenarioRunner, load_scenario
 
 
 class RunRequest(BaseModel):
@@ -21,7 +24,18 @@ class RunRequest(BaseModel):
     noise_enabled: bool
 
 
+class ScenarioRunRequest(BaseModel):
+    scenario_id: str
+
+
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.post("/api/run")
@@ -141,6 +155,42 @@ def get_metrics(run_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="metrics not found")
     return json_load(path)
+
+
+@app.get("/api/scenarios")
+def list_scenarios():
+    """Return metadata for all available scenario YAML files."""
+    examples_dir = Path("hydrion/scenarios/examples")
+    if not examples_dir.exists():
+        return []
+    result = []
+    for yaml_file in sorted(examples_dir.glob("*.yaml")):
+        try:
+            with open(yaml_file, "r") as f:
+                raw = yaml.safe_load(f) or {}
+            result.append({
+                "id": str(raw.get("id", yaml_file.stem)),
+                "name": str(raw.get("name", yaml_file.stem)),
+                "description": str(raw.get("description", "")),
+            })
+        except Exception:
+            pass
+    return result
+
+
+@app.post("/api/scenarios/run")
+def run_scenario(req: ScenarioRunRequest) -> Dict[str, Any]:
+    """Execute a named scenario and return the full ScenarioExecutionHistory."""
+    examples_dir = Path("hydrion/scenarios/examples")
+    yaml_path = examples_dir / f"{req.scenario_id}.yaml"
+    if not yaml_path.exists():
+        raise HTTPException(status_code=404, detail=f"scenario not found: {req.scenario_id}")
+
+    scenario = load_scenario(yaml_path)
+    env = HydrionEnv(config_path="configs/default.yaml", auto_reset=False)
+    runner = ScenarioRunner(env)
+    history = runner.run(scenario)
+    return history.to_dict()
 
 
 # small helper

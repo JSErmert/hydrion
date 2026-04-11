@@ -1,0 +1,26 @@
+id: baseline_nominal
+name: Baseline Nominal
+description: >
+  Stable nominal laundry-outflow processing with fiber-dominant particle load.
+  No disturbances. Near-clean initial state. Used as UI and playback baseline.
+
+initialState:
+  fouling_s1: 0.05
+  fouling_s2: 0.02
+  fouling_s3: 0.01
+
+flowProfile:
+  type: realistic
+  baseFlowLmin: 13.5
+  variability: 0.15
+
+particleProfile:
+  type: fiber_dominant
+  density: 0.30
+  variability: 0.10
+
+disturbances: []
+
+durationSec: 300
+dt: 0.1
+seed: 42

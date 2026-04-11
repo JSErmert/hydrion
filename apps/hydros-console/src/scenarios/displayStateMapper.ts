@@ -1,0 +1,197 @@
+/**
+ * scenarios/displayStateMapper.ts
+ *
+ * Maps a ScenarioStepRecord (raw truth_state from hydrion physics engine)
+ * to HydrosDisplayState — the full display-layer schema consumed by all
+ * Machine View components.
+ *
+ * Rules:
+ *   - Source: step.truthState only (physics truth, never sensor_state)
+ *   - All numeric outputs explicitly bounded [0, 1] via clamp01 where appropriate
+ *   - Fallback to 0 for any missing truth_state field
+ *   - Derived labels computed from governed precedence chains
+ */
+
+import type { ScenarioStepRecord } from '../api/types';
+
+export type SystemStatus =
+  | 'BACKFLUSH ACTIVE'
+  | 'BYPASS ACTIVE'
+  | 'MAINTENANCE REQUIRED'
+  | 'RISING LOAD'
+  | 'NORMAL OPERATION';
+
+export type FiberLoadLabel = 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
+export type PulseLabel = 'READY' | 'ACTIVE' | 'COOLDOWN';
+export type BypassLabel = 'OFF' | 'READY' | 'ACTIVE';
+
+export interface HydrosDisplayState {
+  // MachineCore visual inputs
+  running: boolean;
+  flow: number;        // 0..1  (truth_state.flow)
+  clog: number;        // 0..1  (truth_state.clog / mesh_loading_avg)
+  eField: number;      // 0..1  (truth_state.E_norm)
+  backflush: number;   // 0..1  (truth_state.bf_active)
+  storageFill: number; // 0..1  (not tracked — 0)
+
+  // Raw physical values (for display)
+  q_processed_lmin: number;  // Q_out_Lmin or commanded fallback
+  pressureKpa: number;       // dp_total_pa / 1000 (or scaled from normalized)
+  q_bypass_lmin: number;     // truth_state.q_bypass_lmin
+  bf_pulse_idx: number;      // truth_state.bf_pulse_idx
+  bf_cooldown_remaining: number; // truth_state.bf_cooldown_remaining
+
+  // Normalized metrics
+  flowLmin: number;    // commanded flow (scenarioInputs.flowLmin)
+  pressure: number;    // 0..1 normalized
+  captureEff: number;  // 0..1
+
+  // Per-stage fouling (0..1)
+  foulingS1: number;
+  foulingS2: number;
+  foulingS3: number;
+
+  // Status flags
+  maintenanceRequired: boolean;
+  bypassActive: boolean;
+
+  // Derived display labels (governed precedence chains)
+  systemStatus: SystemStatus;
+  fiberLoadLabel: FiberLoadLabel;
+  pulseLabel: PulseLabel;
+  bypassLabel: BypassLabel;
+  efficiencyPct: number;     // captureEff * 100
+  nextActions: string[];
+
+  // Step identity
+  t: number;
+  stepIndex: number;
+  reward: number;
+}
+
+function clamp01(x: number | undefined): number {
+  if (x === undefined || !Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(1, x));
+}
+
+function deriveSystemStatus(
+  backflush: number,
+  bypassActive: boolean,
+  maintenanceRequired: boolean,
+  clog: number,
+): SystemStatus {
+  if (backflush > 0.5) return 'BACKFLUSH ACTIVE';
+  if (bypassActive) return 'BYPASS ACTIVE';
+  if (maintenanceRequired) return 'MAINTENANCE REQUIRED';
+  if (clog > 0.7) return 'RISING LOAD';
+  return 'NORMAL OPERATION';
+}
+
+function deriveFiberLoad(clog: number): FiberLoadLabel {
+  if (clog < 0.25) return 'LOW';
+  if (clog < 0.50) return 'MODERATE';
+  if (clog < 0.75) return 'HIGH';
+  return 'CRITICAL';
+}
+
+function derivePulse(bfActive: number, bfCooldown: number): PulseLabel {
+  if (bfActive > 0.5) return 'ACTIVE';
+  if (bfCooldown > 0) return 'COOLDOWN';
+  return 'READY';
+}
+
+function deriveBypass(
+  bypassActive: boolean,
+  pressure: number,
+  maintenanceRequired: boolean,
+): BypassLabel {
+  if (bypassActive) return 'ACTIVE';
+  if (pressure > 0.8 || maintenanceRequired) return 'READY';
+  return 'OFF';
+}
+
+function deriveNextActions(
+  systemStatus: SystemStatus,
+  foulingS3: number,
+): string[] {
+  switch (systemStatus) {
+    case 'BACKFLUSH ACTIVE':
+      return ['WAIT — BACKFLUSH IN PROGRESS'];
+    case 'BYPASS ACTIVE':
+      return ['ISOLATE STAGES', 'CLEAR BLOCKAGE'];
+    case 'MAINTENANCE REQUIRED': {
+      const actions = ['SCHEDULE MAINTENANCE'];
+      if (foulingS3 > 0.8) actions.push('INSPECT STAGE 3');
+      return actions;
+    }
+    case 'RISING LOAD':
+      return ['INITIATE BACKFLUSH', 'REDUCE FLOW'];
+    default:
+      return ['MONITOR — NO ACTION'];
+  }
+}
+
+export function mapStepRecordToDisplayState(step: ScenarioStepRecord): HydrosDisplayState {
+  const ts = step.truthState;
+
+  const backflush = clamp01(ts['bf_active']);
+  const bypassActive = (ts['bypass_active'] ?? 0) > 0.5;
+  const maintenanceRequired = (ts['maintenance_required'] ?? 0) > 0.5;
+  const clog = clamp01(ts['clog'] ?? ts['mesh_loading_avg']);
+  const pressure = clamp01(ts['pressure']);
+  const foulingS3 = clamp01(ts['fouling_frac_s3']);
+  const bfCooldown = ts['bf_cooldown_remaining'] ?? 0;
+
+  const systemStatus = deriveSystemStatus(backflush, bypassActive, maintenanceRequired, clog);
+  const fiberLoadLabel = deriveFiberLoad(clog);
+  const pulseLabel = derivePulse(backflush, bfCooldown);
+  const bypassLabel = deriveBypass(bypassActive, pressure, maintenanceRequired);
+  const efficiencyPct = clamp01(ts['capture_eff']) * 100;
+  const nextActions = deriveNextActions(systemStatus, foulingS3);
+
+  // Physical pressure: dp_total_pa if available, else scale normalized → ~0–100 kPa
+  const dpPa = ts['dp_total_pa'] ?? (pressure * 100000);
+  const pressureKpa = dpPa / 1000;
+
+  // Actual processed flow: Q_out_Lmin if available, else commanded
+  const q_processed_lmin =
+    ts['Q_out_Lmin'] ?? ts['q_processed_lmin'] ?? step.scenarioInputs.flowLmin;
+
+  return {
+    running: !step.done,
+
+    flow: clamp01(ts['flow']),
+    clog,
+    eField: clamp01(ts['E_norm']),
+    backflush,
+    storageFill: 0.0,
+
+    q_processed_lmin,
+    pressureKpa,
+    q_bypass_lmin: ts['q_bypass_lmin'] ?? 0,
+    bf_pulse_idx: ts['bf_pulse_idx'] ?? 0,
+    bf_cooldown_remaining: bfCooldown,
+
+    flowLmin: step.scenarioInputs.flowLmin,
+    pressure,
+    captureEff: clamp01(ts['capture_eff']),
+
+    foulingS1: clamp01(ts['fouling_frac_s1']),
+    foulingS2: clamp01(ts['fouling_frac_s2']),
+    foulingS3,
+
+    maintenanceRequired,
+    bypassActive,
+
+    systemStatus,
+    fiberLoadLabel,
+    pulseLabel,
+    bypassLabel,
+    efficiencyPct,
+    nextActions,
+
+    t: step.t,
+    stepIndex: step.stepIndex,
+    reward: step.reward,
+  };
+}

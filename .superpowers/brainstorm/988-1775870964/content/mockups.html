@@ -1,0 +1,667 @@
+<style>
+  body { background: #04080E; padding: 24px; }
+  h2 { color: #CBD5E1; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.12em; text-align: center; margin-bottom: 4px; }
+  .subtitle { text-align: center; color: #475569; font-family: 'JetBrains Mono', monospace; font-size: 12px; margin-bottom: 28px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 1300px; margin: 0 auto; }
+  .card { background: #080D18; border: 1.5px solid #1E293B; border-radius: 8px; cursor: pointer; transition: border-color 0.2s, transform 0.15s; overflow: hidden; }
+  .card:hover { border-color: #334155; transform: translateY(-2px); }
+  .card.selected { border-color: #38BDF8; box-shadow: 0 0 20px #38BDF822; }
+  .card-image { width: 100%; border-bottom: 1px solid #1E293B; }
+  .card-body { padding: 14px 16px 16px; }
+  .letter { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 3px; background: #0C1F35; border: 1px solid #1E3A5F; font-family: monospace; font-size: 11px; color: #38BDF8; font-weight: 700; margin-right: 8px; }
+  .card-title-row { display: flex; align-items: center; margin-bottom: 4px; }
+  .card-body h3 { font-family: monospace; font-size: 13px; color: #CBD5E1; margin: 0; }
+  .tag { display: inline-block; font-family: monospace; font-size: 9px; color: #38BDF8; border: 1px solid #1E3A5F; background: #0C1F35; padding: 2px 7px; border-radius: 2px; margin: 6px 0 8px; }
+  .card-body p { font-family: monospace; font-size: 10px; color: #64748B; margin: 0 0 6px; line-height: 1.6; }
+  .card-body ul { margin: 0; padding-left: 14px; }
+  .card-body li { font-family: monospace; font-size: 10px; color: #475569; line-height: 1.8; }
+  .card-body li span { color: #94A3B8; }
+  .arch-note { font-family: monospace; font-size: 10px; color: #334155; background: #060A14; border: 1px solid #1E293B; border-radius: 4px; padding: 10px 14px; max-width: 1300px; margin: 0 auto 20px; line-height: 1.8; }
+  .arch-note strong { color: #38BDF8; }
+</style>
+<script>
+function sel(el) {
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  fetch('/event', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'selection', choice: el.dataset.choice }) });
+}
+</script>
+
+<h2>HydrOS — Options J · K</h2>
+<p class="subtitle">Correct particle capture topology: mesh fan → right-wall node → collection tube → manifold → annular storage at outlet</p>
+
+<div class="arch-note">
+  <strong>Particle path per stage:</strong>
+  3 slanted meshes inside each cylinder fan from the left wall and converge at an
+  <strong>electrostatic node on the right wall</strong>.
+  A <strong>collection tube</strong> exits each node downward, joins a
+  <strong>horizontal manifold</strong> running below all three stages, which rises
+  into the <strong>bottom of the storage reservoir</strong>.
+  The reservoir is <strong>annular</strong> — the clean-water outlet pipe passes
+  through its center; captured particles accumulate in the outer ring.
+</div>
+
+<div class="cards">
+
+<!-- ═══════════════ J — G+F FUSION + CORRECT ARCHITECTURE ═══════════════ -->
+<div class="card" data-choice="j" onclick="sel(this)">
+<div class="card-image">
+<svg viewBox="0 0 600 320" width="100%" xmlns="http://www.w3.org/2000/svg" style="display:block">
+<defs>
+  <linearGradient id="jTopCap" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#3A6090"/><stop offset="50%" stop-color="#1A3050"/><stop offset="100%" stop-color="#0A1628"/>
+  </linearGradient>
+  <radialGradient id="jCyl" cx="62%" cy="26%" r="56%">
+    <stop offset="0%" stop-color="#2A5080" stop-opacity=".95"/>
+    <stop offset="55%" stop-color="#0E1E30" stop-opacity=".85"/>
+    <stop offset="100%" stop-color="#040810" stop-opacity="1"/>
+  </radialGradient>
+  <radialGradient id="jAmb" cx="50%" cy="50%" r="55%">
+    <stop offset="0%" stop-color="#0D2040" stop-opacity=".8"/>
+    <stop offset="100%" stop-color="#020508" stop-opacity="1"/>
+  </radialGradient>
+  <linearGradient id="jPipe" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#030608"/>
+    <stop offset="42%" stop-color="#1A3050"/>
+    <stop offset="58%" stop-color="#1A3050"/>
+    <stop offset="100%" stop-color="#030608"/>
+  </linearGradient>
+  <linearGradient id="jResv" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#061A14"/>
+    <stop offset="100%" stop-color="#020A08"/>
+  </linearGradient>
+  <filter id="jNode"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="jGlow"><feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="jBlur"><feGaussianBlur stdDeviation="1.4"/></filter>
+</defs>
+
+<rect width="600" height="320" fill="#020508"/>
+<rect x="84" y="46" width="432" height="206" fill="url(#jAmb)"/>
+
+<!-- Header -->
+<rect width="600" height="26" fill="#04060E"/>
+<line x1="0" y1="26" x2="600" y2="26" stroke="#1E293B" stroke-width="1"/>
+<line x1="75" y1="13" x2="220" y2="13" stroke="#1E293B" stroke-width=".7"/>
+<line x1="380" y1="13" x2="525" y2="13" stroke="#1E293B" stroke-width=".7"/>
+<text x="300" y="17" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="monospace" letter-spacing="3">HydrOS</text>
+<text x="590" y="17" text-anchor="end" fill="#334155" font-size="7" font-family="monospace">MACHINE VIEW</text>
+
+<!-- Telemetry -->
+<rect y="26" width="600" height="20" fill="#04060E"/>
+<line x1="0" y1="46" x2="600" y2="46" stroke="#1E293B" stroke-width=".8"/>
+<text x="104" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">FLOW</text>
+<text x="140" y="38" text-anchor="middle" fill="#38BDF8" font-size="7" font-family="monospace">13.5 L/min</text>
+<text x="226" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">PRESSURE</text>
+<text x="270" y="38" text-anchor="middle" fill="#94A3B8" font-size="7" font-family="monospace">45.2 kPa</text>
+<text x="354" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">DP TOTAL</text>
+<text x="394" y="38" text-anchor="middle" fill="#FBBF24" font-size="7" font-family="monospace">3840 Pa</text>
+<text x="476" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">E-FIELD</text>
+<text x="512" y="38" text-anchor="middle" fill="#818CF8" font-size="7" font-family="monospace">72%</text>
+
+<!-- Left panel -->
+<rect y="46" width="84" height="206" fill="#04060E"/>
+<line x1="84" y1="46" x2="84" y2="252" stroke="#1E293B" stroke-width="1"/>
+<text x="42" y="66" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">FLOW RATE</text>
+<text x="42" y="78" text-anchor="middle" fill="#38BDF8" font-size="11" font-family="monospace" font-weight="700">13.5</text>
+<text x="42" y="87" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">L/min</text>
+<line x1="8" y1="94" x2="76" y2="94" stroke="#1E293B" stroke-width=".6"/>
+<text x="42" y="106" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">PRESSURE</text>
+<text x="42" y="118" text-anchor="middle" fill="#94A3B8" font-size="11" font-family="monospace" font-weight="700">45.2</text>
+<text x="42" y="127" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">kPa</text>
+<line x1="8" y1="134" x2="76" y2="134" stroke="#1E293B" stroke-width=".6"/>
+<text x="42" y="146" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">DP TOTAL</text>
+<text x="42" y="158" text-anchor="middle" fill="#FBBF24" font-size="11" font-family="monospace" font-weight="700">3840</text>
+<text x="42" y="167" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">Pa</text>
+<line x1="8" y1="174" x2="76" y2="174" stroke="#1E293B" stroke-width=".6"/>
+<text x="42" y="186" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">RUN CYCLE</text>
+<text x="42" y="198" text-anchor="middle" fill="#FBBF24" font-size="11" font-family="monospace" font-weight="700">04:22</text>
+
+<!-- Right panel -->
+<rect x="516" y="46" width="84" height="206" fill="#04060E"/>
+<line x1="516" y1="46" x2="516" y2="252" stroke="#1E293B" stroke-width="1"/>
+<text x="558" y="64" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">STATUS</text>
+<rect x="524" y="69" width="68" height="16" rx="2" fill="#34D39910" stroke="#34D39940" stroke-width="1"/>
+<text x="558" y="80" text-anchor="middle" fill="#34D399" font-size="6" font-family="monospace">NORMAL OP</text>
+<text x="558" y="98" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">EFFICIENCY</text>
+<circle cx="558" cy="126" r="22" fill="none" stroke="#1E293B" stroke-width="3"/>
+<circle cx="558" cy="126" r="22" fill="none" stroke="#34D399" stroke-width="3" stroke-dasharray="105 34" transform="rotate(135 558 126)" filter="url(#jGlow)"/>
+<text x="558" y="130" text-anchor="middle" fill="#E2E8F0" font-size="9" font-family="monospace" font-weight="700">82%</text>
+<text x="558" y="162" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">REWARD</text>
+<text x="558" y="176" text-anchor="middle" fill="#34D399" font-size="10" font-family="monospace" font-weight="700">0.9142</text>
+<text x="558" y="194" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">E-FIELD</text>
+<text x="558" y="206" text-anchor="middle" fill="#818CF8" font-size="9" font-family="monospace" font-weight="700">72%</text>
+
+<!--
+  ══════════════════════════════════════════════════════
+  CENTER MACHINE — STAGE LAYOUT
+  ──────────────────────────────────────────────────────
+  Inlet pipe : x=84-108
+  S1 body    : x=108-176  CX=142
+  Gap 1      : x=176-198
+  S2 body    : x=198-266  CX=232
+  Gap 2      : x=266-288
+  S3 body    : x=288-356  CX=322
+  S3→storage : x=356-388
+  STORAGE    : x=388-446  CX=417  (annular)
+  Outlet     : x=446-516
+
+  CYL_Y=74, CYL_H=118, CYL_BOTTOM=192
+  PIPE_Y=126, PIPE_H=14, PIPE_CY=133
+
+  MESH NODE  : right wall of each stage, y=145
+    S1 node  : (176,145)
+    S2 node  : (266,145)
+    S3 node  : (356,145)
+
+  COLLECTION TUBE: drop from node to y=220
+  MANIFOLD      : y=220 from x=176 to x=417
+  RISE          : (417,220) → (417,172) into reservoir bottom
+  ══════════════════════════════════════════════════════
+-->
+
+<!-- Main pipe (continuous background) -->
+<rect x="84" y="126" width="432" height="14" fill="url(#jPipe)"/>
+<text x="90" y="123" fill="#334155" font-size="6" font-family="monospace">INLET</text>
+<text x="510" y="123" text-anchor="end" fill="#334155" font-size="6" font-family="monospace">CLEAN OUT</text>
+
+<!-- Flow arrows in gaps -->
+<path d="M190,131 L197,133 L190,136" fill="none" stroke="#38BDF8" stroke-width="1.1" opacity=".45"/>
+<path d="M280,131 L287,133 L280,136" fill="none" stroke="#38BDF8" stroke-width="1.1" opacity=".45"/>
+<path d="M370,131 L377,133 L370,136" fill="none" stroke="#38BDF8" stroke-width="1.1" opacity=".45"/>
+<path d="M470,131 L477,133 L470,136" fill="none" stroke="#38BDF8" stroke-width="1.1" opacity=".45"/>
+
+<!-- ══ S1 ══ -->
+<rect x="108" y="74" width="68" height="118" fill="#060C1A"/>
+<rect x="108" y="74" width="68" height="118" fill="url(#jCyl)"/>
+<rect x="108" y="74" width="11" height="118" fill="#000" opacity=".28"/>
+<!-- 3 mesh lines → right wall node (176,145) -->
+<line x1="110" y1="80"  x2="176" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<line x1="110" y1="106" x2="176" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<line x1="110" y1="128" x2="176" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<!-- Electrostatic node -->
+<circle cx="176" cy="145" r="5" fill="#818CF8" opacity=".2" filter="url(#jNode)"/>
+<circle cx="176" cy="145" r="2.5" fill="#818CF8" opacity=".9" filter="url(#jGlow)"/>
+<circle cx="176" cy="145" r="1.1" fill="#DDD6FE"/>
+<!-- Fouling -->
+<rect x="111" y="158" width="62" height="31" fill="#FBBF24" opacity=".11"/>
+<rect x="111" y="157" width="62" height="2.5" fill="#FBBF24" opacity=".35" filter="url(#jBlur)"/>
+<!-- Particles -->
+<circle cx="120" cy="96"  r="1.3" fill="#38BDF8" opacity=".45"/><circle cx="136" cy="84"  r="1.1" fill="#94A3B8" opacity=".38"/>
+<circle cx="152" cy="98"  r="1.4" fill="#38BDF8" opacity=".42"/><circle cx="166" cy="86"  r="1.1" fill="#94A3B8" opacity=".35"/>
+<circle cx="150" cy="164" r="1.2" fill="#FBBF24" opacity=".58"/><circle cx="166" cy="174" r="1.1" fill="#FBBF24" opacity=".5"/>
+<!-- G-style caps -->
+<rect x="108" y="74" width="68" height="118" fill="none" stroke="#1A3050" stroke-width="1.5"/>
+<ellipse cx="142" cy="74" rx="34" ry="13" fill="url(#jTopCap)" stroke="#3A6090" stroke-width="1.5"/>
+<ellipse cx="142" cy="72" rx="26" ry="7" fill="none" stroke="#5A90C0" stroke-width=".7" opacity=".35"/>
+<ellipse cx="142" cy="192" rx="34" ry="11" fill="#050A14" stroke="#1A3050" stroke-width="1"/>
+<text x="142" y="210" text-anchor="middle" fill="#475569" font-size="7" font-family="monospace">S1  28%</text>
+<text x="142" y="66" text-anchor="middle" fill="#FBBF24" font-size="6" font-family="monospace" opacity=".85">28%</text>
+
+<!-- ══ S2 ══ -->
+<rect x="198" y="74" width="68" height="118" fill="#060C1A"/>
+<rect x="198" y="74" width="68" height="118" fill="url(#jCyl)"/>
+<rect x="198" y="74" width="11" height="118" fill="#000" opacity=".28"/>
+<line x1="200" y1="80"  x2="266" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<line x1="200" y1="106" x2="266" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<line x1="200" y1="128" x2="266" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<circle cx="266" cy="145" r="5" fill="#818CF8" opacity=".2" filter="url(#jNode)"/>
+<circle cx="266" cy="145" r="2.5" fill="#818CF8" opacity=".9" filter="url(#jGlow)"/>
+<circle cx="266" cy="145" r="1.1" fill="#DDD6FE"/>
+<rect x="201" y="143" width="62" height="46" fill="#FBBF24" opacity=".11"/>
+<rect x="201" y="142" width="62" height="2.5" fill="#FBBF24" opacity=".35" filter="url(#jBlur)"/>
+<circle cx="210" cy="96"  r="1.3" fill="#38BDF8" opacity=".45"/><circle cx="228" cy="84"  r="1.1" fill="#94A3B8" opacity=".38"/>
+<circle cx="244" cy="98"  r="1.4" fill="#38BDF8" opacity=".42"/><circle cx="258" cy="86"  r="1.1" fill="#94A3B8" opacity=".35"/>
+<circle cx="212" cy="152" r="1.2" fill="#FBBF24" opacity=".58"/><circle cx="240" cy="164" r="1.1" fill="#FBBF24" opacity=".5"/>
+<rect x="198" y="74" width="68" height="118" fill="none" stroke="#1A3050" stroke-width="1.5"/>
+<ellipse cx="232" cy="74" rx="34" ry="13" fill="url(#jTopCap)" stroke="#3A6090" stroke-width="1.5"/>
+<ellipse cx="232" cy="72" rx="26" ry="7" fill="none" stroke="#5A90C0" stroke-width=".7" opacity=".35"/>
+<ellipse cx="232" cy="192" rx="34" ry="11" fill="#050A14" stroke="#1A3050" stroke-width="1"/>
+<text x="232" y="210" text-anchor="middle" fill="#475569" font-size="7" font-family="monospace">S2  38%</text>
+<text x="232" y="66" text-anchor="middle" fill="#FBBF24" font-size="6" font-family="monospace" opacity=".85">38%</text>
+
+<!-- ══ S3 ══ -->
+<rect x="288" y="74" width="68" height="118" fill="#060C1A"/>
+<rect x="288" y="74" width="68" height="118" fill="url(#jCyl)"/>
+<rect x="288" y="74" width="11" height="118" fill="#000" opacity=".28"/>
+<line x1="290" y1="80"  x2="356" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<line x1="290" y1="106" x2="356" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<line x1="290" y1="128" x2="356" y2="145" stroke="#38BDF8" stroke-width=".9" opacity=".3"/>
+<circle cx="356" cy="145" r="5" fill="#818CF8" opacity=".2" filter="url(#jNode)"/>
+<circle cx="356" cy="145" r="2.5" fill="#818CF8" opacity=".9" filter="url(#jGlow)"/>
+<circle cx="356" cy="145" r="1.1" fill="#DDD6FE"/>
+<rect x="291" y="126" width="62" height="63" fill="#FB923C" opacity=".1"/>
+<rect x="291" y="125" width="62" height="2.5" fill="#FB923C" opacity=".38" filter="url(#jBlur)"/>
+<circle cx="300" cy="92"  r="1.3" fill="#38BDF8" opacity=".45"/><circle cx="318" cy="82"  r="1.1" fill="#94A3B8" opacity=".38"/>
+<circle cx="334" cy="96"  r="1.4" fill="#38BDF8" opacity=".42"/><circle cx="350" cy="84"  r="1.1" fill="#94A3B8" opacity=".35"/>
+<circle cx="300" cy="136" r="1.3" fill="#FB923C" opacity=".62"/><circle cx="322" cy="150" r="1.2" fill="#FB923C" opacity=".55"/>
+<circle cx="340" cy="160" r="1.1" fill="#FB923C" opacity=".5"/>
+<rect x="288" y="74" width="68" height="118" fill="none" stroke="#1A3050" stroke-width="1.5"/>
+<ellipse cx="322" cy="74" rx="34" ry="13" fill="url(#jTopCap)" stroke="#3A6090" stroke-width="1.5"/>
+<ellipse cx="322" cy="72" rx="26" ry="7" fill="none" stroke="#5A90C0" stroke-width=".7" opacity=".35"/>
+<ellipse cx="322" cy="192" rx="34" ry="11" fill="#050A14" stroke="#1A3050" stroke-width="1"/>
+<text x="322" y="210" text-anchor="middle" fill="#475569" font-size="7" font-family="monospace">S3  51%</text>
+<text x="322" y="66" text-anchor="middle" fill="#FB923C" font-size="6" font-family="monospace" opacity=".85">51%</text>
+
+<!-- ══ COLLECTION TUBES — drop from each node to manifold ══ -->
+<!-- S1 tube: (176,145) → (176,220) -->
+<line x1="176" y1="145" x2="176" y2="220" stroke="#34D399" stroke-width=".9" stroke-dasharray="2 3" opacity=".5"/>
+<!-- S2 tube: (266,145) → (266,220) -->
+<line x1="266" y1="145" x2="266" y2="220" stroke="#34D399" stroke-width=".9" stroke-dasharray="2 3" opacity=".5"/>
+<!-- S3 tube: (356,145) → (356,220) -->
+<line x1="356" y1="145" x2="356" y2="220" stroke="#34D399" stroke-width=".9" stroke-dasharray="2 3" opacity=".5"/>
+<!-- Horizontal manifold: (176,220) → (417,220) -->
+<line x1="176" y1="220" x2="417" y2="220" stroke="#34D399" stroke-width=".9" stroke-dasharray="2 3" opacity=".5"/>
+<!-- Rise into reservoir bottom: (417,220) → (417,172) -->
+<line x1="417" y1="220" x2="417" y2="172" stroke="#34D399" stroke-width="1.2" opacity=".6"/>
+<!-- Arrow tip pointing up into reservoir bottom -->
+<path d="M413,178 L417,168 L421,178" fill="none" stroke="#34D399" stroke-width="1" opacity=".55"/>
+<!-- Small label -->
+<text x="296" y="230" text-anchor="middle" fill="#1A4030" font-size="5.5" font-family="monospace" letter-spacing=".5">COLLECTION MANIFOLD</text>
+
+<!-- ══ STORAGE RESERVOIR (annular cross-section at x=388-446) ══
+     Outer body: captured particles fill top + bottom rings
+     Inner pipe: clean water passes through the center
+     Entry: manifold rises into bottom center of vessel            ══ -->
+<!-- Outer body -->
+<rect x="388" y="94" width="58" height="78" rx="3" fill="url(#jResv)" stroke="#34D399" stroke-width="1.2" opacity=".7"/>
+<!-- Inner pipe hole — clean water outlet through center of donut -->
+<rect x="388" y="126" width="58" height="14" fill="url(#jPipe)"/>
+<!-- Pipe passthrough visual cue (slight highlight on inner walls) -->
+<line x1="389" y1="127" x2="445" y2="127" stroke="#38BDF8" stroke-width=".5" opacity=".2"/>
+<line x1="389" y1="139" x2="445" y2="139" stroke="#38BDF8" stroke-width=".5" opacity=".1"/>
+<!-- Top collection area — particles accumulated -->
+<circle cx="397" cy="104" r="1.1" fill="#34D399" opacity=".55"/>
+<circle cx="410" cy="110" r="1.3" fill="#34D399" opacity=".5"/>
+<circle cx="423" cy="100" r="1.0" fill="#34D399" opacity=".45"/>
+<circle cx="435" cy="108" r="1.2" fill="#34D399" opacity=".4"/>
+<circle cx="403" cy="116" r="0.9" fill="#34D399" opacity=".35"/>
+<circle cx="441" cy="116" r="1.0" fill="#34D399" opacity=".38"/>
+<!-- Bottom collection area -->
+<circle cx="396" cy="148" r="1.1" fill="#34D399" opacity=".55"/>
+<circle cx="412" cy="156" r="1.3" fill="#34D399" opacity=".5"/>
+<circle cx="425" cy="148" r="1.0" fill="#34D399" opacity=".45"/>
+<circle cx="438" cy="156" r="1.2" fill="#34D399" opacity=".4"/>
+<circle cx="404" cy="164" r="0.9" fill="#34D399" opacity=".38"/>
+<!-- Manifold entry dot at reservoir bottom center -->
+<circle cx="417" cy="172" r="2.5" fill="#34D399" opacity=".6" filter="url(#jGlow)"/>
+<!-- Labels -->
+<text x="417" y="91" text-anchor="middle" fill="#34D399" font-size="6" font-family="monospace" opacity=".8">STORAGE</text>
+<text x="417" y="184" text-anchor="middle" fill="#2A5040" font-size="5.5" font-family="monospace">ANNULAR · 42%</text>
+<!-- Fill indicator -->
+<rect x="390" y="96" width="36" height="3" rx="1" fill="#34D399" opacity=".25"/>
+
+<!-- E-field band -->
+<line x1="108" y1="60" x2="446" y2="60" stroke="#818CF8" stroke-width=".8" stroke-dasharray="3 5" opacity=".55"/>
+<text x="277" y="56" text-anchor="middle" fill="#818CF8" font-size="5.5" font-family="monospace" opacity=".75">E-FIELD  72%</text>
+
+<!-- Event timeline -->
+<line x1="96" y1="230" x2="494" y2="230" stroke="#1E293B" stroke-width="1"/>
+<circle cx="118" cy="230" r="3.5" fill="#34D399" filter="url(#jGlow)"/>
+<text x="118" y="224" text-anchor="middle" fill="#34D399" font-size="5" font-family="monospace">START</text>
+<line x1="122" y1="230" x2="214" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="218" cy="230" r="3.5" fill="#FBBF24" filter="url(#jGlow)"/>
+<text x="218" y="224" text-anchor="middle" fill="#FBBF24" font-size="5" font-family="monospace">FOULING</text>
+<line x1="222" y1="230" x2="314" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="318" cy="230" r="3.5" fill="#38BDF8" filter="url(#jGlow)"/>
+<text x="318" y="224" text-anchor="middle" fill="#38BDF8" font-size="5" font-family="monospace">PULSE</text>
+<line x1="322" y1="230" x2="414" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="418" cy="230" r="3.5" fill="#F87171" opacity=".5"/>
+<text x="418" y="224" text-anchor="middle" fill="#475569" font-size="5" font-family="monospace">BYPASS</text>
+<line x1="422" y1="230" x2="488" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="492" cy="230" r="3.5" fill="#34D399" opacity=".5" filter="url(#jGlow)"/>
+<text x="492" y="224" text-anchor="middle" fill="#34D399" font-size="5" font-family="monospace">STORED</text>
+
+<!-- Bottom strip -->
+<rect y="252" width="600" height="68" fill="#04060E"/>
+<line x1="0" y1="252" x2="600" y2="252" stroke="#1E293B" stroke-width="1"/>
+<text x="70" y="266" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">CALIBRATION TIERS</text>
+<rect x="16" y="270" width="108" height="10" rx="1" fill="#1E293B"/>
+<rect x="16" y="270" width="72" height="10" rx="1" fill="#34D39930"/>
+<text x="70" y="278" text-anchor="middle" fill="#34D399" font-size="6" font-family="monospace">TIER 2 / 3</text>
+<text x="70" y="290" text-anchor="middle" fill="#334155" font-size="5" font-family="monospace">HYDRAULICS · CLOGGING</text>
+<circle cx="200" cy="279" r="22" fill="none" stroke="#1E293B" stroke-width="3"/>
+<circle cx="200" cy="279" r="22" fill="none" stroke="#FBBF24" stroke-width="3" stroke-dasharray="80 59" transform="rotate(135 200 279)" filter="url(#jGlow)"/>
+<text x="200" y="283" text-anchor="middle" fill="#E2E8F0" font-size="8" font-family="monospace" font-weight="700">38%</text>
+<text x="200" y="300" text-anchor="middle" fill="#334155" font-size="5" font-family="monospace">FIBER LOAD</text>
+<circle cx="300" cy="279" r="22" fill="none" stroke="#1E293B" stroke-width="3"/>
+<circle cx="300" cy="279" r="22" fill="none" stroke="#38BDF8" stroke-width="3" stroke-dasharray="40 99" transform="rotate(135 300 279)" filter="url(#jGlow)"/>
+<text x="300" y="283" text-anchor="middle" fill="#E2E8F0" font-size="8" font-family="monospace" font-weight="700">18%</text>
+<text x="300" y="300" text-anchor="middle" fill="#334155" font-size="5" font-family="monospace">PULSE</text>
+<text x="418" y="266" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">NEXT ACTION</text>
+<text x="418" y="278" text-anchor="middle" fill="#94A3B8" font-size="7" font-family="monospace">Monitor S3 fouling</text>
+<text x="418" y="289" text-anchor="middle" fill="#475569" font-size="6" font-family="monospace">Pulse in ~12 steps</text>
+<text x="548" y="266" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">REWARD</text>
+<text x="548" y="282" text-anchor="middle" fill="#34D399" font-size="11" font-family="monospace" font-weight="700">0.9142</text>
+</svg>
+</div>
+<div class="card-body">
+  <div class="card-title-row"><span class="letter">J</span><h3>G+F Fusion · Correct Topology</h3></div>
+  <span class="tag">MESH→NODE→TUBE→MANIFOLD→ANNULAR STORAGE</span>
+  <p>G perspective caps + F radial lighting. Mesh fans converge to right-wall electrostatic node. Collection tubes drop to manifold below stages. Manifold rises into annular storage bottom.</p>
+  <ul>
+    <li><span>Meshes:</span> 3 lines fan from left wall → converge at right-wall node</li>
+    <li><span>Node:</span> Purple glow dot on right wall of each cylinder</li>
+    <li><span>Tubes:</span> Dashed green lines drop from node to horizontal manifold</li>
+    <li><span>Storage:</span> Annular at far right — pipe through center hole, outer ring = particles</li>
+  </ul>
+</div>
+</div>
+
+<!-- ═══════════════ K — CINEMATIC + CORRECT ARCHITECTURE ═══════════════ -->
+<div class="card" data-choice="k" onclick="sel(this)">
+<div class="card-image">
+<svg viewBox="0 0 600 320" width="100%" xmlns="http://www.w3.org/2000/svg" style="display:block">
+<defs>
+  <radialGradient id="kBg" cx="50%" cy="50%" r="60%">
+    <stop offset="0%" stop-color="#081828"/><stop offset="100%" stop-color="#010306"/>
+  </radialGradient>
+  <linearGradient id="kTopCap" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#4A78B0"/><stop offset="50%" stop-color="#1E3868"/><stop offset="100%" stop-color="#0A1830"/>
+  </linearGradient>
+  <radialGradient id="kCyl" cx="60%" cy="24%" r="58%">
+    <stop offset="0%" stop-color="#305888" stop-opacity="1"/>
+    <stop offset="50%" stop-color="#0E1E38" stop-opacity=".9"/>
+    <stop offset="100%" stop-color="#040810" stop-opacity="1"/>
+  </radialGradient>
+  <linearGradient id="kPipe" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#020406"/>
+    <stop offset="42%" stop-color="#1E3868"/>
+    <stop offset="50%" stop-color="#38BDF822"/>
+    <stop offset="58%" stop-color="#1E3868"/>
+    <stop offset="100%" stop-color="#020406"/>
+  </linearGradient>
+  <linearGradient id="kResv" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#081E16"/><stop offset="100%" stop-color="#020C08"/>
+  </linearGradient>
+  <filter id="kGlow"><feGaussianBlur in="SourceGraphic" stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="kNode"><feGaussianBlur in="SourceGraphic" stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="kManifold"><feGaussianBlur in="SourceGraphic" stdDeviation="1.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="kResvGlow"><feGaussianBlur in="SourceGraphic" stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="kEField"><feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="kBlur"><feGaussianBlur stdDeviation="1.4"/></filter>
+</defs>
+
+<rect width="600" height="320" fill="url(#kBg)"/>
+<!-- Deep ambient glow behind machine -->
+<ellipse cx="270" cy="140" rx="200" ry="100" fill="#0D3060" opacity=".18" filter="url(#kGlow)"/>
+
+<!-- Header -->
+<rect width="600" height="26" fill="#030508"/>
+<line x1="0" y1="26" x2="600" y2="26" stroke="#1E293B" stroke-width="1"/>
+<line x1="75" y1="13" x2="220" y2="13" stroke="#1E293B" stroke-width=".7"/>
+<line x1="380" y1="13" x2="525" y2="13" stroke="#1E293B" stroke-width=".7"/>
+<text x="300" y="17" text-anchor="middle" fill="#94A3B8" font-size="9" font-family="monospace" letter-spacing="3">HydrOS</text>
+<text x="590" y="17" text-anchor="end" fill="#334155" font-size="7" font-family="monospace">MACHINE VIEW</text>
+
+<!-- Telemetry -->
+<rect y="26" width="600" height="20" fill="#030508"/>
+<line x1="0" y1="46" x2="600" y2="46" stroke="#1E293B" stroke-width=".8"/>
+<text x="104" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">FLOW</text>
+<text x="140" y="38" text-anchor="middle" fill="#38BDF8" font-size="7" font-family="monospace">13.5 L/min</text>
+<text x="226" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">PRESSURE</text>
+<text x="270" y="38" text-anchor="middle" fill="#94A3B8" font-size="7" font-family="monospace">45.2 kPa</text>
+<text x="354" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">DP TOTAL</text>
+<text x="394" y="38" text-anchor="middle" fill="#FBBF24" font-size="7" font-family="monospace">3840 Pa</text>
+<text x="476" y="38" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">E-FIELD</text>
+<text x="512" y="38" text-anchor="middle" fill="#818CF8" font-size="7" font-family="monospace">72%</text>
+
+<!-- Left panel -->
+<rect y="46" width="84" height="206" fill="#030508"/>
+<line x1="84" y1="46" x2="84" y2="252" stroke="#1E293B" stroke-width="1"/>
+<text x="42" y="66" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">FLOW RATE</text>
+<text x="42" y="78" text-anchor="middle" fill="#38BDF8" font-size="11" font-family="monospace" font-weight="700">13.5</text>
+<text x="42" y="87" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">L/min</text>
+<line x1="8" y1="94" x2="76" y2="94" stroke="#1E293B" stroke-width=".6"/>
+<text x="42" y="106" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">PRESSURE</text>
+<text x="42" y="118" text-anchor="middle" fill="#94A3B8" font-size="11" font-family="monospace" font-weight="700">45.2</text>
+<text x="42" y="127" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">kPa</text>
+<line x1="8" y1="134" x2="76" y2="134" stroke="#1E293B" stroke-width=".6"/>
+<text x="42" y="146" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">DP TOTAL</text>
+<text x="42" y="158" text-anchor="middle" fill="#FBBF24" font-size="11" font-family="monospace" font-weight="700">3840</text>
+<text x="42" y="167" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">Pa</text>
+<line x1="8" y1="174" x2="76" y2="174" stroke="#1E293B" stroke-width=".6"/>
+<text x="42" y="186" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">RUN CYCLE</text>
+<text x="42" y="198" text-anchor="middle" fill="#FBBF24" font-size="11" font-family="monospace" font-weight="700">04:22</text>
+
+<!-- Right panel -->
+<rect x="516" y="46" width="84" height="206" fill="#030508"/>
+<line x1="516" y1="46" x2="516" y2="252" stroke="#1E293B" stroke-width="1"/>
+<text x="558" y="64" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">STATUS</text>
+<rect x="524" y="69" width="68" height="16" rx="2" fill="#34D39910" stroke="#34D39940" stroke-width="1"/>
+<text x="558" y="80" text-anchor="middle" fill="#34D399" font-size="6" font-family="monospace">NORMAL OP</text>
+<text x="558" y="98" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">EFFICIENCY</text>
+<circle cx="558" cy="126" r="22" fill="none" stroke="#1E293B" stroke-width="3"/>
+<circle cx="558" cy="126" r="22" fill="none" stroke="#34D399" stroke-width="3" stroke-dasharray="105 34" transform="rotate(135 558 126)" filter="url(#kGlow)"/>
+<text x="558" y="130" text-anchor="middle" fill="#E2E8F0" font-size="9" font-family="monospace" font-weight="700">82%</text>
+<text x="558" y="162" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">REWARD</text>
+<text x="558" y="176" text-anchor="middle" fill="#34D399" font-size="10" font-family="monospace" font-weight="700">0.9142</text>
+<text x="558" y="194" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">E-FIELD</text>
+<text x="558" y="206" text-anchor="middle" fill="#818CF8" font-size="9" font-family="monospace" font-weight="700">72%</text>
+
+<!-- Main pipe -->
+<rect x="84" y="126" width="432" height="14" fill="url(#kPipe)"/>
+<!-- pipe center glow -->
+<rect x="84" y="130" width="432" height="4" fill="#38BDF8" opacity=".06" filter="url(#kBlur)"/>
+<text x="90" y="123" fill="#334155" font-size="6" font-family="monospace">INLET</text>
+<text x="510" y="123" text-anchor="end" fill="#334155" font-size="6" font-family="monospace">CLEAN OUT</text>
+
+<!-- Flow arrows -->
+<path d="M190,131 L197,133 L190,136" fill="none" stroke="#38BDF8" stroke-width="1.3" opacity=".55"/>
+<path d="M280,131 L287,133 L280,136" fill="none" stroke="#38BDF8" stroke-width="1.3" opacity=".55"/>
+<path d="M370,131 L377,133 L370,136" fill="none" stroke="#38BDF8" stroke-width="1.3" opacity=".55"/>
+<path d="M470,131 L477,133 L470,136" fill="none" stroke="#38BDF8" stroke-width="1.3" opacity=".55"/>
+
+<!-- E-FIELD ARCS between stages (glowing) -->
+<!-- S1→S2 gap: x=176-198 -->
+<path d="M177,88 Q187,76 197,88" fill="none" stroke="#818CF8" stroke-width="1.2" opacity=".55" filter="url(#kEField)"/>
+<path d="M177,112 Q187,100 197,112" fill="none" stroke="#818CF8" stroke-width="1" opacity=".4" filter="url(#kEField)"/>
+<!-- S2→S3 gap: x=266-288 -->
+<path d="M267,88 Q277,76 287,88" fill="none" stroke="#818CF8" stroke-width="1.2" opacity=".55" filter="url(#kEField)"/>
+<path d="M267,112 Q277,100 287,112" fill="none" stroke="#818CF8" stroke-width="1" opacity=".4" filter="url(#kEField)"/>
+
+<!-- ══ S1 (cinematic) ══ -->
+<rect x="108" y="74" width="68" height="118" fill="#06101E"/>
+<rect x="108" y="74" width="68" height="118" fill="url(#kCyl)"/>
+<rect x="108" y="74" width="11" height="118" fill="#000" opacity=".35"/>
+<!-- 3 primary mesh lines + 2 secondary -->
+<line x1="110" y1="80"  x2="176" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="110" y1="106" x2="176" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="110" y1="128" x2="176" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="110" y1="93"  x2="176" y2="145" stroke="#38BDF8" stroke-width=".6" opacity=".16"/>
+<line x1="110" y1="117" x2="176" y2="145" stroke="#38BDF8" stroke-width=".6" opacity=".16"/>
+<!-- Triple-halo electrostatic node -->
+<circle cx="176" cy="145" r="10" fill="#818CF8" opacity=".08" filter="url(#kNode)"/>
+<circle cx="176" cy="145" r="5"  fill="#818CF8" opacity=".22" filter="url(#kNode)"/>
+<circle cx="176" cy="145" r="2.5" fill="#818CF8" opacity="1" filter="url(#kGlow)"/>
+<circle cx="176" cy="145" r="1.1" fill="#ECE9FE"/>
+<!-- Fouling -->
+<rect x="111" y="158" width="62" height="31" fill="#FBBF24" opacity=".10"/>
+<rect x="111" y="157" width="62" height="2.5" fill="#FBBF24" opacity=".45" filter="url(#kBlur)"/>
+<!-- Particles -->
+<circle cx="120" cy="94"  r="1.5" fill="#38BDF8" opacity=".55"/><circle cx="136" cy="82"  r="1.3" fill="#94A3B8" opacity=".45"/>
+<circle cx="154" cy="96"  r="1.6" fill="#38BDF8" opacity=".5"/> <circle cx="168" cy="84"  r="1.3" fill="#94A3B8" opacity=".42"/>
+<circle cx="148" cy="162" r="1.4" fill="#FBBF24" opacity=".68"/><circle cx="164" cy="172" r="1.3" fill="#FBBF24" opacity=".6"/>
+<!-- Caps -->
+<rect x="108" y="74" width="68" height="118" fill="none" stroke="#1E3868" stroke-width="1.5"/>
+<ellipse cx="142" cy="74" rx="34" ry="14" fill="url(#kTopCap)" stroke="#4A78B0" stroke-width="1.5"/>
+<ellipse cx="142" cy="72" rx="26" ry="8" fill="none" stroke="#6A9ACA" stroke-width=".8" opacity=".4"/>
+<ellipse cx="142" cy="192" rx="34" ry="12" fill="#050A16" stroke="#1A3050" stroke-width="1"/>
+<text x="142" y="210" text-anchor="middle" fill="#475569" font-size="7" font-family="monospace">S1  28%</text>
+<text x="142" y="66" text-anchor="middle" fill="#FBBF24" font-size="6" font-family="monospace">28%</text>
+
+<!-- ══ S2 ══ -->
+<rect x="198" y="74" width="68" height="118" fill="#06101E"/>
+<rect x="198" y="74" width="68" height="118" fill="url(#kCyl)"/>
+<rect x="198" y="74" width="11" height="118" fill="#000" opacity=".35"/>
+<line x1="200" y1="80"  x2="266" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="200" y1="106" x2="266" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="200" y1="128" x2="266" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="200" y1="93"  x2="266" y2="145" stroke="#38BDF8" stroke-width=".6" opacity=".16"/>
+<line x1="200" y1="117" x2="266" y2="145" stroke="#38BDF8" stroke-width=".6" opacity=".16"/>
+<circle cx="266" cy="145" r="10" fill="#818CF8" opacity=".08" filter="url(#kNode)"/>
+<circle cx="266" cy="145" r="5"  fill="#818CF8" opacity=".22" filter="url(#kNode)"/>
+<circle cx="266" cy="145" r="2.5" fill="#818CF8" opacity="1" filter="url(#kGlow)"/>
+<circle cx="266" cy="145" r="1.1" fill="#ECE9FE"/>
+<rect x="201" y="142" width="62" height="47" fill="#FBBF24" opacity=".10"/>
+<rect x="201" y="141" width="62" height="2.5" fill="#FBBF24" opacity=".45" filter="url(#kBlur)"/>
+<circle cx="210" cy="94"  r="1.5" fill="#38BDF8" opacity=".55"/><circle cx="228" cy="82"  r="1.3" fill="#94A3B8" opacity=".45"/>
+<circle cx="246" cy="96"  r="1.6" fill="#38BDF8" opacity=".5"/> <circle cx="260" cy="84"  r="1.3" fill="#94A3B8" opacity=".42"/>
+<circle cx="214" cy="150" r="1.4" fill="#FBBF24" opacity=".68"/><circle cx="240" cy="162" r="1.3" fill="#FBBF24" opacity=".6"/>
+<rect x="198" y="74" width="68" height="118" fill="none" stroke="#1E3868" stroke-width="1.5"/>
+<ellipse cx="232" cy="74" rx="34" ry="14" fill="url(#kTopCap)" stroke="#4A78B0" stroke-width="1.5"/>
+<ellipse cx="232" cy="72" rx="26" ry="8" fill="none" stroke="#6A9ACA" stroke-width=".8" opacity=".4"/>
+<ellipse cx="232" cy="192" rx="34" ry="12" fill="#050A16" stroke="#1A3050" stroke-width="1"/>
+<text x="232" y="210" text-anchor="middle" fill="#475569" font-size="7" font-family="monospace">S2  38%</text>
+<text x="232" y="66" text-anchor="middle" fill="#FBBF24" font-size="6" font-family="monospace">38%</text>
+
+<!-- ══ S3 ══ -->
+<rect x="288" y="74" width="68" height="118" fill="#06101E"/>
+<rect x="288" y="74" width="68" height="118" fill="url(#kCyl)"/>
+<rect x="288" y="74" width="11" height="118" fill="#000" opacity=".35"/>
+<line x1="290" y1="80"  x2="356" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="290" y1="106" x2="356" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="290" y1="128" x2="356" y2="145" stroke="#38BDF8" stroke-width="1.3" opacity=".42"/>
+<line x1="290" y1="93"  x2="356" y2="145" stroke="#38BDF8" stroke-width=".6" opacity=".16"/>
+<line x1="290" y1="117" x2="356" y2="145" stroke="#38BDF8" stroke-width=".6" opacity=".16"/>
+<circle cx="356" cy="145" r="10" fill="#818CF8" opacity=".08" filter="url(#kNode)"/>
+<circle cx="356" cy="145" r="5"  fill="#818CF8" opacity=".22" filter="url(#kNode)"/>
+<circle cx="356" cy="145" r="2.5" fill="#818CF8" opacity="1" filter="url(#kGlow)"/>
+<circle cx="356" cy="145" r="1.1" fill="#ECE9FE"/>
+<rect x="291" y="126" width="62" height="63" fill="#FB923C" opacity=".09"/>
+<rect x="291" y="125" width="62" height="2.5" fill="#FB923C" opacity=".45" filter="url(#kBlur)"/>
+<circle cx="300" cy="90"  r="1.5" fill="#38BDF8" opacity=".55"/><circle cx="318" cy="80"  r="1.3" fill="#94A3B8" opacity=".45"/>
+<circle cx="336" cy="94"  r="1.6" fill="#38BDF8" opacity=".5"/> <circle cx="350" cy="82"  r="1.3" fill="#94A3B8" opacity=".42"/>
+<circle cx="298" cy="136" r="1.5" fill="#FB923C" opacity=".72"/><circle cx="320" cy="150" r="1.4" fill="#FB923C" opacity=".65"/>
+<circle cx="340" cy="162" r="1.3" fill="#FB923C" opacity=".58"/>
+<rect x="288" y="74" width="68" height="118" fill="none" stroke="#1E3868" stroke-width="1.5"/>
+<ellipse cx="322" cy="74" rx="34" ry="14" fill="url(#kTopCap)" stroke="#4A78B0" stroke-width="1.5"/>
+<ellipse cx="322" cy="72" rx="26" ry="8" fill="none" stroke="#6A9ACA" stroke-width=".8" opacity=".4"/>
+<ellipse cx="322" cy="192" rx="34" ry="12" fill="#050A16" stroke="#1A3050" stroke-width="1"/>
+<text x="322" y="210" text-anchor="middle" fill="#475569" font-size="7" font-family="monospace">S3  51%</text>
+<text x="322" y="66" text-anchor="middle" fill="#FB923C" font-size="6" font-family="monospace">51%</text>
+
+<!-- ══ COLLECTION TUBES + MANIFOLD — pipe cross-sections (double-wall + fill) ══ -->
+<!-- S1 drop tube: node (176,145) → manifold top (176,218). 4px wide, centered on x=176 -->
+<rect x="174" y="145" width="4" height="73" fill="#071810" opacity=".9"/>
+<rect x="174" y="145" width="4" height="73" fill="#34D399" opacity=".07" filter="url(#kManifold)"/>
+<line x1="174" y1="145" x2="174" y2="218" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+<line x1="178" y1="145" x2="178" y2="218" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+
+<!-- S2 drop tube: node (266,145) → manifold top (266,218) -->
+<rect x="264" y="145" width="4" height="73" fill="#071810" opacity=".9"/>
+<rect x="264" y="145" width="4" height="73" fill="#34D399" opacity=".07" filter="url(#kManifold)"/>
+<line x1="264" y1="145" x2="264" y2="218" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+<line x1="268" y1="145" x2="268" y2="218" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+
+<!-- S3 drop tube: node (356,145) → manifold top (356,218) -->
+<rect x="354" y="145" width="4" height="73" fill="#071810" opacity=".9"/>
+<rect x="354" y="145" width="4" height="73" fill="#34D399" opacity=".07" filter="url(#kManifold)"/>
+<line x1="354" y1="145" x2="354" y2="218" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+<line x1="358" y1="145" x2="358" y2="218" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+
+<!-- Horizontal manifold tube: x=174→419, y=218→222 (4px tall). Tee-joins with drop tubes -->
+<rect x="174" y="218" width="245" height="4" fill="#071810" opacity=".9"/>
+<rect x="174" y="218" width="245" height="4" fill="#34D399" opacity=".08" filter="url(#kManifold)"/>
+<line x1="174" y1="218" x2="419" y2="218" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+<line x1="174" y1="222" x2="419" y2="222" stroke="#34D399" stroke-width=".8" opacity=".75"/>
+<!-- Directional ticks showing flow toward reservoir -->
+<path d="M232,216 L240,220 L232,224" fill="none" stroke="#34D399" stroke-width=".9" opacity=".5"/>
+<path d="M340,216 L348,220 L340,224" fill="none" stroke="#34D399" stroke-width=".9" opacity=".5"/>
+
+<!-- Rise tube: manifold end (x=415-419) → reservoir bottom (y=172-222). 4px wide vertical -->
+<rect x="415" y="172" width="4" height="46" fill="#071810" opacity=".9"/>
+<rect x="415" y="172" width="4" height="46" fill="#34D399" opacity=".09" filter="url(#kManifold)"/>
+<line x1="415" y1="172" x2="415" y2="218" stroke="#34D399" stroke-width=".8" opacity=".8"/>
+<line x1="419" y1="172" x2="419" y2="218" stroke="#34D399" stroke-width=".8" opacity=".8"/>
+<!-- Arrow tip pointing up into reservoir bottom -->
+<path d="M413,181 L417,170 L421,181" fill="none" stroke="#34D399" stroke-width="1.2" opacity=".75" filter="url(#kGlow)"/>
+<!-- Manifold entry glow dot at reservoir bottom -->
+<circle cx="417" cy="172" r="3.5" fill="#34D399" opacity=".75" filter="url(#kGlow)"/>
+<text x="296" y="233" text-anchor="middle" fill="#1E3828" font-size="5.5" font-family="monospace" letter-spacing=".5">COLLECTION MANIFOLD</text>
+
+<!-- ══ STORAGE RESERVOIR — annular cross-section ══ -->
+<!-- Outer glow halo -->
+<rect x="384" y="90" width="66" height="86" rx="4" fill="#34D399" opacity=".06" filter="url(#kResvGlow)"/>
+<!-- Outer body -->
+<rect x="388" y="94" width="58" height="78" rx="3" fill="url(#kResv)" stroke="#34D399" stroke-width="1.5" opacity=".8" filter="url(#kResvGlow)"/>
+<!-- Inner pipe hole — clean water outlet -->
+<rect x="388" y="126" width="58" height="14" fill="url(#kPipe)"/>
+<!-- Pipe inner highlight -->
+<line x1="389" y1="127" x2="445" y2="127" stroke="#38BDF8" stroke-width=".6" opacity=".25"/>
+<line x1="389" y1="139" x2="445" y2="139" stroke="#38BDF8" stroke-width=".4" opacity=".12"/>
+<!-- Top collection ring — dense particles -->
+<circle cx="396" cy="102" r="1.3" fill="#34D399" opacity=".65"/><circle cx="408" cy="108" r="1.5" fill="#34D399" opacity=".6"/>
+<circle cx="420" cy="100" r="1.2" fill="#34D399" opacity=".55"/><circle cx="432" cy="108" r="1.4" fill="#34D399" opacity=".5"/>
+<circle cx="400" cy="116" r="1.0" fill="#34D399" opacity=".45"/><circle cx="440" cy="116" r="1.2" fill="#34D399" opacity=".48"/>
+<circle cx="413" cy="112" r="1.3" fill="#34D399" opacity=".55"/>
+<!-- Bottom collection ring -->
+<circle cx="396" cy="146" r="1.3" fill="#34D399" opacity=".65"/><circle cx="410" cy="154" r="1.5" fill="#34D399" opacity=".6"/>
+<circle cx="424" cy="146" r="1.2" fill="#34D399" opacity=".55"/><circle cx="436" cy="154" r="1.4" fill="#34D399" opacity=".5"/>
+<circle cx="402" cy="162" r="1.1" fill="#34D399" opacity=".45"/><circle cx="444" cy="162" r="1.0" fill="#34D399" opacity=".42"/>
+<circle cx="418" cy="158" r="1.3" fill="#34D399" opacity=".55"/>
+<!-- Fill indicator bar in top ring -->
+<rect x="390" y="96" width="46" height="3" rx="1" fill="#34D399" opacity=".3" filter="url(#kManifold)"/>
+<!-- 99% display label — like reference image -->
+<text x="417" y="91" text-anchor="middle" fill="#34D399" font-size="6.5" font-family="monospace" font-weight="700" opacity=".9">STORAGE</text>
+<text x="417" y="184" text-anchor="middle" fill="#34D399" font-size="7" font-family="monospace" font-weight="700" opacity=".75">99%</text>
+<!-- Annular label -->
+<text x="417" y="192" text-anchor="middle" fill="#1A4030" font-size="5" font-family="monospace">ANNULAR</text>
+
+<!-- E-field band -->
+<line x1="108" y1="60" x2="446" y2="60" stroke="#818CF8" stroke-width=".9" stroke-dasharray="3 5" opacity=".6" filter="url(#kEField)"/>
+<text x="277" y="56" text-anchor="middle" fill="#818CF8" font-size="5.5" font-family="monospace" opacity=".8">E-FIELD  72%</text>
+
+<!-- Event timeline -->
+<line x1="96" y1="230" x2="494" y2="230" stroke="#1E293B" stroke-width="1"/>
+<circle cx="118" cy="230" r="3.5" fill="#34D399" filter="url(#kGlow)"/>
+<text x="118" y="224" text-anchor="middle" fill="#34D399" font-size="5" font-family="monospace">START</text>
+<line x1="122" y1="230" x2="214" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="218" cy="230" r="3.5" fill="#FBBF24" filter="url(#kGlow)"/>
+<text x="218" y="224" text-anchor="middle" fill="#FBBF24" font-size="5" font-family="monospace">FOULING</text>
+<line x1="222" y1="230" x2="314" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="318" cy="230" r="3.5" fill="#38BDF8" filter="url(#kGlow)"/>
+<text x="318" y="224" text-anchor="middle" fill="#38BDF8" font-size="5" font-family="monospace">PULSE</text>
+<line x1="322" y1="230" x2="414" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="418" cy="230" r="3.5" fill="#F87171" opacity=".5"/>
+<text x="418" y="224" text-anchor="middle" fill="#475569" font-size="5" font-family="monospace">BYPASS</text>
+<line x1="422" y1="230" x2="488" y2="230" stroke="#334155" stroke-width="1" stroke-dasharray="3 2"/>
+<circle cx="492" cy="230" r="3.5" fill="#34D399" opacity=".55" filter="url(#kGlow)"/>
+<text x="492" y="224" text-anchor="middle" fill="#34D399" font-size="5" font-family="monospace">STORED</text>
+
+<!-- Bottom strip -->
+<rect y="252" width="600" height="68" fill="#030508"/>
+<line x1="0" y1="252" x2="600" y2="252" stroke="#1E293B" stroke-width="1"/>
+<text x="70" y="266" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">CALIBRATION TIERS</text>
+<rect x="16" y="270" width="108" height="10" rx="1" fill="#1E293B"/>
+<rect x="16" y="270" width="72" height="10" rx="1" fill="#34D39930"/>
+<text x="70" y="278" text-anchor="middle" fill="#34D399" font-size="6" font-family="monospace">TIER 2 / 3</text>
+<text x="70" y="290" text-anchor="middle" fill="#334155" font-size="5" font-family="monospace">HYDRAULICS · CLOGGING</text>
+<circle cx="200" cy="279" r="22" fill="none" stroke="#1E293B" stroke-width="3"/>
+<circle cx="200" cy="279" r="22" fill="none" stroke="#FBBF24" stroke-width="3" stroke-dasharray="80 59" transform="rotate(135 200 279)" filter="url(#kGlow)"/>
+<text x="200" y="283" text-anchor="middle" fill="#E2E8F0" font-size="8" font-family="monospace" font-weight="700">38%</text>
+<text x="200" y="300" text-anchor="middle" fill="#334155" font-size="5" font-family="monospace">FIBER LOAD</text>
+<circle cx="300" cy="279" r="22" fill="none" stroke="#1E293B" stroke-width="3"/>
+<circle cx="300" cy="279" r="22" fill="none" stroke="#38BDF8" stroke-width="3" stroke-dasharray="40 99" transform="rotate(135 300 279)" filter="url(#kGlow)"/>
+<text x="300" y="283" text-anchor="middle" fill="#E2E8F0" font-size="8" font-family="monospace" font-weight="700">18%</text>
+<text x="300" y="300" text-anchor="middle" fill="#334155" font-size="5" font-family="monospace">PULSE</text>
+<text x="418" y="266" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">NEXT ACTION</text>
+<text x="418" y="278" text-anchor="middle" fill="#94A3B8" font-size="7" font-family="monospace">Monitor S3 fouling</text>
+<text x="418" y="289" text-anchor="middle" fill="#475569" font-size="6" font-family="monospace">Pulse in ~12 steps</text>
+<text x="548" y="266" text-anchor="middle" fill="#334155" font-size="6" font-family="monospace">REWARD</text>
+<text x="548" y="282" text-anchor="middle" fill="#34D399" font-size="11" font-family="monospace" font-weight="700">0.9142</text>
+</svg>
+</div>
+<div class="card-body">
+  <div class="card-title-row"><span class="letter">K</span><h3>Cinematic · Correct Topology</h3></div>
+  <span class="tag">MAX DRAMA · E-FIELD ARCS · 99% STORAGE</span>
+  <p>Same mesh→node→tube→manifold→annular topology as J at maximum visual intensity. Triple-halo nodes, glowing green manifold with directional ticks, E-field arcs between stages, 99% reservoir display.</p>
+  <ul>
+    <li><span>Nodes:</span> Triple-halo — outer fog, mid ring, bright inner core</li>
+    <li><span>E-field arcs:</span> Glowing purple arcs in inter-stage gaps</li>
+    <li><span>Manifold:</span> Glowing green line with direction arrows toward storage</li>
+    <li><span>Storage:</span> Annular vessel, outer glow, 99% fill indicator</li>
+  </ul>
+</div>
+</div>
+
+</div>

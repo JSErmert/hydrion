@@ -1,0 +1,35 @@
+# backflush_recovery_demo.yaml
+# Pre-fouled filter with scheduled backflush burst.
+# Demonstrates partial recovery dynamics captured in ScenarioExecutionHistory.
+
+id: backflush_recovery_demo
+name: Backflush Recovery Demo
+description: >
+  Pre-fouled filter (s1=0.40, s2=0.50, s3=0.60) running at nominal flow.
+  A 5-second backflush burst at t=30s exercises the backflush state machine
+  and partially recovers fouling. Fouling then re-accumulates under low particle load.
+
+initialState:
+  fouling_s1: 0.40
+  fouling_s2: 0.50
+  fouling_s3: 0.60
+
+flowProfile:
+  type: constant
+  baseFlowLmin: 13.5
+
+particleProfile:
+  type: fiber_dominant
+  density: 0.10
+  variability: 0.0
+
+disturbances: []
+
+backflush_events:
+  - time: 30.0
+    duration: 5.0
+    bf_cmd: 1.0
+
+durationSec: 120
+dt: 0.1
+seed: 42
