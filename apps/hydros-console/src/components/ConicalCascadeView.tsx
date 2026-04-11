@@ -45,6 +45,83 @@ const INLET_OVALS = [
   { cx: 714, stroke: '#2A6080' },
 ] as const;
 
+// ── Dynamic layer helpers ─────────────────────────────────────────────────
+
+interface FieldLinesProps {
+  xStart: number;
+  xEnd:   number;
+  eField: number;       // [0,1] normalised field strength
+  mult:   number;       // stage multiplier: S1=0.4, S2=0.7, S3=1.0
+  color:  string;
+}
+
+function RadialFieldLines({ xStart, xEnd, eField, mult, color }: FieldLinesProps) {
+  const count = Math.round(eField * 14 * mult);
+  if (count === 0) return null;
+  const lines = [];
+  for (let i = 0; i < count; i++) {
+    const x    = xStart + (xEnd - xStart) * (i + 0.5) / count;
+    // Lower half (toward bottom outer wall) — stronger, more physically significant
+    const loOp = Math.min(0.55, 0.35 * mult * eField + 0.08);
+    // Upper half (toward top outer wall) — weaker counterpart
+    const upOp = loOp * 0.4;
+    lines.push(
+      <g key={i}>
+        <line x1={x} y1={154} x2={x} y2={244}
+          stroke={color} strokeWidth={0.75} opacity={loOp} />
+        <line x1={x} y1={154} x2={x} y2={64}
+          stroke={color} strokeWidth={0.55} opacity={upOp} />
+      </g>
+    );
+  }
+  return <>{lines}</>;
+}
+
+interface ParticleStreamProps {
+  xStart:  number;
+  xEnd:    number;
+  apexX:   number;
+  apexY:   number;
+  conc:    number;   // concentration entering this stage
+  etaPP:   number;   // buoyant species efficiency (for density split)
+  etaPET:  number;   // dense species efficiency
+  color:   string;
+  seed:    number;   // deterministic scatter per stage
+}
+
+function ParticleStream({
+  xStart, xEnd, apexX, apexY, conc, etaPP, etaPET, color, seed,
+}: ParticleStreamProps) {
+  const n = Math.round(conc * 18);
+  if (n === 0) return null;
+
+  // buoyancy cue: when buoyant species escape significantly more than dense
+  const buoyancyActive = etaPP < etaPET * 0.75 && etaPET > 0.1;
+
+  const dots: JSX.Element[] = [];
+  // Simple deterministic pseudorandom scatter using seed
+  const rng = (i: number, offset: number) =>
+    Math.abs(Math.sin(seed * 31.7 + i * 17.3 + offset)) % 1;
+
+  for (let i = 0; i < n; i++) {
+    const t      = rng(i, 0);
+    const x      = xStart + (apexX - xStart) * (0.1 + t * 0.85);
+    // y within concentration zone: 154 (centreline) to apexY (floor)
+    const yBase  = 154 + (apexY - 154) * (0.05 + rng(i, 1) * 0.9);
+    // buoyancy: even-indexed particles float upward when buoyancyActive
+    const yOff   = (buoyancyActive && i % 2 === 0) ? -12 * (1 - etaPP) : 0;
+    const y      = yBase + yOff;
+    const r      = 1.6 + rng(i, 2) * 1.8;
+    const op     = 0.35 + conc * 0.35;
+
+    dots.push(
+      <circle key={i} cx={x} cy={y} r={r}
+        fill={color} opacity={op} />
+    );
+  }
+  return <>{dots}</>;
+}
+
 interface ConicalCascadeViewProps {
   state: HydrosDisplayState | null;
 }
@@ -188,6 +265,18 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
             {stg.label === 'S1' ? 'S1 — COARSE' : stg.label === 'S2' ? 'S2 — MEDIUM' : 'S3 — FINE'}
           </text>
         </g>
+      ))}
+
+      {/* ── RADIAL E-FIELD LINES (radial, center → outer wall) ──────── */}
+      {STAGES.map((stg) => (
+        <RadialFieldLines
+          key={`ef-${stg.label}`}
+          xStart={stg.xStart}
+          xEnd={stg.apexX}
+          eField={s?.eField ?? 0}
+          mult={stg.mult}
+          color={stg.color}
+        />
       ))}
 
       {/* ── INLET FACE OVALS ────────────────────────────────────────── */}
