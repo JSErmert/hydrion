@@ -165,8 +165,35 @@ electrostatics:
   node_weight:    0.70      # []    locked allocation — 06_LOCKED_SYSTEM_CONSTRAINTS.md §D
 
 # ---------------------------------------------------------------------------
+# Particle model — M4: density classification, Stokes settling, per-stage capture
+# ---------------------------------------------------------------------------
 particles:
   C_in_base: 0.7
+
+  # Density classification (locked §E — dense-phase scope, Option A)
+  dense_fraction:   0.70    # PET, PA, PVC, biofilm-coated — primary capture target
+  neutral_fraction: 0.15    # weathered, transitional fragments
+  buoyant_fraction: 0.15    # PP, PE — pass-through, tracked not captured
+
+  # Stokes settling — dense particle geometry and fluid properties
+  stage_height_m:   0.05    # [m] representative stage height — placeholder
+  rho_dense_kgm3:   1380.0  # PET reference density [kg/m³]
+  rho_water_kgm3:   1000.0  # water at ~20°C [kg/m³]
+  mu_water_Pas:     1.0e-3  # dynamic viscosity [Pa·s]
+
+  # Per-stage fouling coupling to capture efficiency
+  fouling_gain_s1:  0.15    # Stage 1 (500 µm coarse mesh)
+  fouling_gain_s2:  0.20    # Stage 2 (100 µm medium mesh)
+  fouling_gain_s3:  0.10    # Stage 3 (5 µm fine pleated)
+
+  # Stage 3 flow-rate penalty (exp(-coeff × max(Q - onset, 0)))
+  s3_flow_penalty_coeff: 0.04   # penalty rate coefficient
+  s3_flow_onset_lmin:    10.0   # [L/min] penalty onset threshold
+
+  # eta_nominal reference conditions (locked §G — do not change without versioning)
+  eta_ref_d_um:     10.0    # [µm] reference particle diameter
+  eta_ref_Q_lmin:   13.5    # [L/min] reference flow rate (mid-nominal envelope)
+
   psd:
     enabled: false
     mode: hybrid

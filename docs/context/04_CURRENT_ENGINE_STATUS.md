@@ -268,37 +268,48 @@ hydrion/physics/electrostatics.py
 
 # 8. Particle Module
 
+**[UPDATED: Milestone 4 — 2026-04-10]**
+
 ## Implementation
 
 
-hydrion/physics/particles.py
+hydrion/physics/particles.py  (ParticleModel v3)
 
 
-### Current behavior
+### Current behavior (M4)
 
-- Tracks:
-  - C_in
-  - C_out
-  - particle_capture_eff
-  - C_fibers
+- Density classification: `C_in` split into `C_in_dense` (70%), `C_in_neutral` (15%), `C_in_buoyant` (15%)
+- Buoyant fraction (PP, PE) exits as full pass-through — scope constraint §E
+- Stokes settling: `v_s = (ρ_p − ρ_w) × g × d² / (18μ)` — positive for dense (assists collection), capped `capture_boost_settling ≤ 0.05`
+- Per-stage size-dependent capture:
+  - `η_s1(d) = clip((d/500)^1.5, 0, 0.99)` — coarse mesh, passes fine particles
+  - `η_s2(d) = clip((d/100)^1.2, 0, 0.98)` — medium mesh
+  - `η_s3(d, Q) = clip((d/5)^0.8 × exp(−0.04 × max(Q−10, 0)), 0, 0.97)` — fine pleated, flow-rate dependent
+- Compound system efficiency: `η_system = 1 − (1−η_s1)(1−η_s2)(1−η_s3)`
+- `η_nominal` locked at reference conditions: d=10µm, Q=13.5 L/min, clean filter, dense-phase ≈ **0.854**
+- Electrostatic boost: `E_capture_gain` (from ElectrostaticsModel v2) added to dense and neutral paths
+- `particle_capture_eff` at obs index 5: represents dense-phase compound capture efficiency
 
-- Supports:
-  - PSD bins
-  - fiber fraction
-  - per-bin concentrations
+### Outputs
+
+- `C_in`, `C_out`, `particle_capture_eff`, `C_fibers` (obs12_v2 unchanged)
+- `C_in_dense`, `C_in_neutral`, `C_in_buoyant`, `buoyant_fraction`
+- `capture_eff_s1`, `capture_eff_s2`, `capture_eff_s3`, `capture_boost_settling`
+- `eta_system`, `eta_nominal`
 
 ### Strengths
 
-- Mass conservation aware
-- PSD-ready
-- Shape-aware foundation exists
+- Density classification physically grounded (§E locked constraint)
+- Stage-specific capture tied to pore size — Stage 3 dominance physically derived
+- `η_nominal` creates a single, unambiguous efficiency anchor for all future claims
+- Flow-rate degradation at S3 is the first dynamic efficiency coupling in HydrOS
 
 ### Limitations
 
-- Capture is still abstracted
-- Not strongly tied to mesh geometry
-- Limited coupling to electrostatics realism
-- No strong size-selective calibration yet
+- Bulk d=10µm used for live efficiency — full PSD integration deferred to M4.5
+- `stage_height_m`, `rho_dense_kgm3` are placeholders — bench geometry required
+- Dense vs neutral capture distinction is settling only — shape/charge differences deferred
+- Neutral fraction uses same mesh efficiency as dense (conservative)
 
 ---
 

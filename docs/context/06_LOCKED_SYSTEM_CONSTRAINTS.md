@@ -150,6 +150,38 @@ System efficiency is defined over the dense-phase fraction only.
 
 ---
 
+# G. System Efficiency Definition
+
+**Locked 2026-04-10**
+
+```
+η_nominal = η_system(d = 10 µm, Q = 13.5 L/min, clean filter, dense-phase particles)
+```
+
+This is the canonical reference efficiency for:
+- Console display: always show as `"η = XX%  @ 10µm / 13.5 L/min"`
+- Engineering claims: any efficiency percentage must reference this definition
+- RL reward shaping (M6): `eta_nominal` in truth_state is the reward signal source
+- Bench validation targets: physical measurement at these conditions = calibration target
+
+## Display Requirement
+
+**Never display a bare efficiency percentage.** The format is mandatory:
+
+```
+η = 75%  @ 10µm / 13.5 L/min
+```
+
+"99%" without qualification is not a valid HydrOS output.
+
+## Implementation Reference
+
+- Code: `eta_nominal` key in `truth_state`, computed in `hydrion/physics/particles.py`
+- Config: `particles.eta_ref_d_um = 10.0`, `particles.eta_ref_Q_lmin = 13.5`
+- Conditions: clean filter (`fouling_frac_s* = 0.0`), dense-phase, no electrostatics
+
+---
+
 # Implementation Doctrine
 
 Realism must be built in this order:
