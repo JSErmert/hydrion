@@ -22,28 +22,37 @@ def test_accumulation_fields_in_truth_state():
 
 
 def test_accumulation_increases_over_steps():
-    """Channel fill must grow when particles are being captured (no flush)."""
+    """Channel fill must grow when particles are being captured (no flush).
+
+    With cascade attenuation, S1 dominates (highest eta). S2 and S3 receive
+    residual concentration after upstream capture.
+    """
     env = make_env()
     env.reset(seed=0)
     action = np.array([0.5, 0.5, 0.0, 0.8], dtype=np.float32)
     for _ in range(20):
         env.step(action)
     s = env._state
+    assert s["channel_fill_s1"] > 0.0, "S1 channel fill must be > 0 (dominant capture stage)"
     total_fill = s["channel_fill_s1"] + s["channel_fill_s2"] + s["channel_fill_s3"]
-    assert total_fill > 0.0, "channel fill must be > 0 after 20 capture steps"
+    assert total_fill > 0.0, "total channel fill must be > 0 after 20 capture steps"
 
 
 def test_flush_reduces_channel_fill():
-    """bf_cmd > 0.5 must drain channels and increase storage_fill."""
+    """bf_cmd > 0.5 must drain channels and increase storage_fill.
+
+    S1 is the dominant accumulation stage (~99.65% PET capture efficiency).
+    S3 receives near-zero concentration due to cascade attenuation — correct physics.
+    """
     env = make_env()
     env.reset(seed=0)
     capture = np.array([0.5, 0.5, 0.0, 0.8], dtype=np.float32)
     flush   = np.array([0.5, 0.5, 1.0, 0.8], dtype=np.float32)
     for _ in range(30):
         env.step(capture)
-    pre_fill = env._state["channel_fill_s3"]
+    pre_fill    = env._state["channel_fill_s1"]   # S1 dominates — use it
     pre_storage = env._state["storage_fill"]
     for _ in range(10):
         env.step(flush)
-    assert env._state["channel_fill_s3"] < pre_fill,   "flush must drain channel_fill_s3"
+    assert env._state["channel_fill_s1"] < pre_fill,   "flush must drain channel_fill_s1"
     assert env._state["storage_fill"]    > pre_storage, "flush must increase storage_fill"

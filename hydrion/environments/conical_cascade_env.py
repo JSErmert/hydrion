@@ -226,6 +226,9 @@ class ConicalCascadeEnv(gym.Env):
         self._state["channel_fill_s1"] = 0.0
         self._state["channel_fill_s2"] = 0.0
         self._state["channel_fill_s3"] = 0.0
+        self._state["flush_active_s1"] = 0.0
+        self._state["flush_active_s2"] = 0.0
+        self._state["flush_active_s3"] = 0.0
 
         return self._obs(), {}
 
@@ -303,21 +306,23 @@ class ConicalCascadeEnv(gym.Env):
         self._state["v_crit_s3"]    = float(v_crit_s3)
 
         # ── Accumulation model ────────────────────────────────────────────
-        bf = float(action[2])  # bf_cmd from action vector
-
-        # Each stage captures particles proportional to PET efficiency
-        # (PET = sinking majority species; captures into channel bottom)
+        # Capture flux: each stage operates on the residual concentration
+        # that passed through upstream stages (cascade attenuation).
+        # Flush (bf_cmd > 0.5) drains on same step — filter still captures
+        # during flush; the hydraulic pressure clears the collection channels.
+        c_stage = float(self._state.get("C_in", 0.7))
         for i in range(3):
             if len(results["PET"]["per_stage"]) > i:
                 eta_i    = float(results["PET"]["per_stage"][i]["eta_stage"])
-                captured = eta_i * float(self._state.get("C_in", 0.7)) * Q_m3s * self._dt
+                captured = eta_i * c_stage * Q_m3s * self._dt
                 self._channel_fill[i] = float(np.clip(
                     self._channel_fill[i] + captured / _CHANNEL_CAPACITY_M3,
                     0.0, 1.0,
                 ))
+                c_stage *= (1.0 - eta_i)   # residual concentration passes to next stage
 
         # bf_cmd > 0.5: drain channels into storage at FLUSH_DRAIN_RATE per step
-        if bf > 0.5:
+        if bf_cmd > 0.5:
             for i in range(3):
                 drained = self._channel_fill[i] * _FLUSH_DRAIN_RATE
                 self._storage_fill = float(np.clip(
