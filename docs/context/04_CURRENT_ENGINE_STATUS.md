@@ -224,34 +224,45 @@ Below ff_u → self-cleans to zero. Above ff_u → accelerates to saturation.
 hydrion/physics/electrostatics.py
 
 
-### Current behavior
+### Current behavior (M3 — 2026-04-10)
 
-- Maps node_voltage_cmd to:
-  - V_node
-  - E_field
-  - E_norm
+- Two physically grounded subsystems:
+  - `InletPolarizationRing` (30%): upstream charge conditioning via `tanh(V/V_ring_ref) × tanh(t_res/t_E_ref)`
+  - `OuterWallCollectorNode` (70%): radial field at collection wall `E_r(r_outer) = V / (r_outer × ln(r_outer/r_inner))`
+- `E_field_kVm` [kV/m] stored in truth_state — physically meaningful field at collection wall
+- `E_capture_gain` ∈ [0, 1] passed to particles module as additive capture boost
+- Residence time coupling: higher flow → shorter residence → lower capture gain (physically correct)
+- `V_max_realism = 2500 V` operational bound; `V_hard_clamp = 3000 V` absolute safety ceiling
 
-- Influences particle capture indirectly
+### Observation Schema
+
+- **obs12_v2** active from M3
+- Index 3: `E_field_norm` = `E_field_kVm / E_field_kVm_max` ∈ [0, 1]
+  (replaced `E_norm` ∈ [0, 2] from obs12_v1)
+
+### M3 Changes (2026-04-10)
+
+- Axial scalar-gap model replaced with cylindrical radial field model
+- `InletPolarizationRing` and `OuterWallCollectorNode` implemented as separate subsystems
+- `E_field_kVm` replaces dimensionless `E_field` [V/m] and `E_norm`
+- `E_capture_gain` replaces `E_norm` as the particles module input
+- Radial geometry parameters (`r_inner_m`, `r_outer_m`) added to YAML
+- Residence time model (`t_E_ref_s`, `stage_volume_L`) added to YAML
 
 ### Strengths
 
-- Stable abstraction
-- Integrates cleanly with particle model
-
-### Changes (M1.5 — 2026-04-10)
-
-- `V_max_realism = 2500 V` enforced as operational bound (was: V_max = 3000 V, violating locked constraint)
-- `V_hard_clamp = 3000 V` added as absolute safety ceiling
-- Voltage bounds exposed in YAML under `electrostatics:` section
+- Field geometry physically correct for concentric cylindrical electrode architecture
+- Residence time coupling correctly penalises high flow rates
+- 30/70 functional allocation matches locked system constraint §D
+- All parameters YAML-exposed; no hardcoded geometry
 
 ### Limitations
 
-- Not physically grounded yet (M3 target)
-- No conductivity dependence
-- No particle-size dependence
-- No spatial capture logic
-- No separation between inlet conditioning and lower-node capture (M3 target)
-- E_norm is still dimensionless percentage — M3 will replace with E_field_kVm
+- `r_inner_m`, `r_outer_m`, `stage_volume_L` are placeholder estimates — bench geometry measurement required
+- No conductivity dependence on field or capture
+- No particle-size dependence on `E_capture_gain`
+- Per-stage separate electrostatic parameters deferred to M3.5 / M4
+- `alpha_E` in `particles.py` remains a scalar gain — M4 will replace with per-stage, per-size curves
 
 ---
 

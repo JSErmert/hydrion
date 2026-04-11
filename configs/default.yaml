@@ -136,13 +136,33 @@ backflush:
 # ---------------------------------------------------------------------------
 # Electrostatics
 # ---------------------------------------------------------------------------
+# Electrostatics — M3: radial field model (obs12_v2)
+# ---------------------------------------------------------------------------
 electrostatics:
-  V_max_realism: 2500.0   # [V] upper operational bound (locked: 06_LOCKED_SYSTEM_CONSTRAINTS.md)
-  V_hard_clamp:  3000.0   # [V] absolute safety ceiling — system must never exceed this
-  tau_charge:    0.5      # [s] first-order voltage rise time constant
-  leak_rate:     0.1      # [1/s] passive voltage decay
-  gap_m:         0.01     # [m] characteristic electrode gap (interim — replaced by radial model in M3)
-  E_norm_ref:    3.0e5    # [V/m] normalization reference for E_norm observation (~300 kV/m at V_hard_clamp)
+  # Voltage bounds (locked — 06_LOCKED_SYSTEM_CONSTRAINTS.md §D)
+  V_max_realism:  2500.0    # [V]   upper operational bound; node_cmd=1.0 maps here
+  V_hard_clamp:   3000.0    # [V]   absolute safety ceiling — system must never exceed
+
+  # First-order voltage dynamics
+  tau_charge:     0.5       # [s]   time constant to reach commanded voltage
+  leak_rate:      0.1       # [1/s] passive voltage decay when command drops
+
+  # Radial geometry — concentric cylindrical capacitor (M3 grounding)
+  # Physical basis: counter-electrode = central rod; collection wall = outer cylinder
+  # E_r(r_outer) = V / (r_outer x ln(r_outer / r_inner))
+  r_inner_m:      0.005     # [m]   counter-electrode (central rod) radius — placeholder
+  r_outer_m:      0.040     # [m]   outer collection wall radius — placeholder
+
+  # Residence time model (shared by ring + node subsystems)
+  t_E_ref_s:      2.0       # [s]   residence time at which tanh -> 0.76 (saturation reference)
+  stage_volume_L: 0.25      # [L]   effective stage volume — placeholder; bench calibration target
+
+  # InletPolarizationRing — upstream charge conditioning (30% contribution)
+  V_ring_ref:     500.0     # [V]   ring conditioning voltage reference (ring tanh -> 0.76)
+  ring_weight:    0.30      # []    locked allocation — 06_LOCKED_SYSTEM_CONSTRAINTS.md §D
+
+  # OuterWallCollectorNode — radial field primary capture (70% contribution)
+  node_weight:    0.70      # []    locked allocation — 06_LOCKED_SYSTEM_CONSTRAINTS.md §D
 
 # ---------------------------------------------------------------------------
 particles:

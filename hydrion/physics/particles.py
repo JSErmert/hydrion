@@ -170,14 +170,15 @@ class ParticleModel:
 
         mesh_avg = float(state.get("mesh_loading_avg", 0.0))
         capture_eff_base = float(state.get("capture_eff", 0.8))
-        E_norm = 0.0
+        E_capture_gain = 0.0
         if electrostatics_model is not None:
-            E_norm = float(electrostatics_model.get_state().get("E_norm", 0.0))
+            E_capture_gain = float(electrostatics_model.get_state().get("E_capture_gain", 0.0))
         else:
-            E_norm = float(state.get("E_norm", 0.0))
+            E_capture_gain = float(state.get("E_capture_gain", 0.0))
 
         # Boost capture efficiency with clogging + electrostatics
-        capture_eff = capture_eff_base + p.alpha_clog * mesh_avg + p.alpha_E * E_norm
+        # E_capture_gain in [0, 1] — normalised signal from ElectrostaticsModel v2
+        capture_eff = capture_eff_base + p.alpha_clog * mesh_avg + p.alpha_E * E_capture_gain
         capture_eff = float(
             np.clip(capture_eff, p.capture_floor, p.capture_ceiling)
         )
