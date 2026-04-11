@@ -206,6 +206,15 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
           <stop offset="0%"   stopColor="#38BDF8" stopOpacity={0.08} />
           <stop offset="100%" stopColor="#38BDF8" stopOpacity={0.3} />
         </linearGradient>
+
+        <style>{`
+          @keyframes bfSweep {
+            0%   { transform: translateX(558px); opacity: 0.18; }
+            85%  { transform: translateX(-60px);  opacity: 0.08; }
+            100% { transform: translateX(-60px);  opacity: 0;    }
+          }
+          .bf-sweep { animation: bfSweep 1.4s linear infinite; }
+        `}</style>
       </defs>
 
       {/* Background */}
@@ -367,36 +376,68 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
       <text x={910} y={52} textAnchor="middle" fill="#5A90B0" fontSize={8} fontFamily={FONT}>OUT</text>
       <text x={910} y={62} textAnchor="middle" fill="#3A7898" fontSize={6.5} fontFamily={FONT}>clean</text>
 
-      {/* ── COLLECTION CHANNELS (static structure) ───────────────────── */}
+      {/* ── COLLECTION CHANNELS (fill driven by channelFillSx) ─────── */}
       <text x={395} y={249} textAnchor="middle" fill="#3A7898"
         fontSize={7} fontFamily={FONT} letterSpacing={1.2}>
         COLLECTION CHANNELS  →  BUFFER ZONE  →  STORAGE
       </text>
-      {STAGES.map((stg) => (
-        <g key={`ch-${stg.label}`}>
-          <rect x={118} y={stg.chY} width={556} height={stg.chH} rx={2.5}
-            fill="#030608" stroke={stg.color} strokeWidth={1} opacity={0.65} />
-          <text x={130} y={stg.chY + 11} fill={stg.color}
-            fontSize={8} fontFamily={FONT} letterSpacing={0.5}>
-            {stg.label}  COLLECTION  ·  {stg.label === 'S1' ? '500µm stage' : stg.label === 'S2' ? '100µm stage' : '5µm membrane'}
-          </text>
-        </g>
-      ))}
-
-      {/* ── FLUSH INLETS (static — highlight wired in Task 8) ────────── */}
       {STAGES.map((stg, i) => {
-        const fy = stg.chY + 2;
+        const fills   = [s?.channelFillS1 ?? 0, s?.channelFillS2 ?? 0, s?.channelFillS3 ?? 0];
+        const fActive = [s?.flushActiveS1 ?? false, s?.flushActiveS2 ?? false, s?.flushActiveS3 ?? false];
+        const fill    = fills[i];
+        const flush   = fActive[i];
+        const fillW   = Math.round(fill * 556);   // channel width = 556 (x=118 to x=674)
+        const tIds    = ['tS1', 'tS2', 'tS3'];
+        return (
+          <g key={`ch-${stg.label}`}>
+            {/* Channel tube structure */}
+            <rect x={118} y={stg.chY} width={556} height={stg.chH} rx={2.5}
+              fill="#030608"
+              stroke={stg.color}
+              strokeWidth={flush ? 1.6 : 1.0}
+              opacity={flush ? 0.9 : 0.65} />
+            {/* Particle fill — grows from left as accumulation increases */}
+            {fillW > 2 && (
+              <rect x={118} y={stg.chY + 1} width={fillW} height={stg.chH - 2} rx={2}
+                fill={`url(#${tIds[i]})`} opacity={0.9} />
+            )}
+            {/* Channel label */}
+            <text x={130} y={stg.chY + 11} fill={stg.color}
+              fontSize={8} fontFamily={FONT} letterSpacing={0.5}>
+              {stg.label}  COLLECTION  ·  {stg.label === 'S1' ? '500µm stage' : stg.label === 'S2' ? '100µm stage' : '5µm membrane'}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Backflush sweep overlay — sweeps R→L through channel band when bf active */}
+      {(s?.backflush ?? 0) > 0.5 && (
+        <rect x={118} y={250} width={558} height={68}
+          fill="#38BDF8" className="bf-sweep"
+          style={{ transformOrigin: 'left center' }} />
+      )}
+
+      {/* ── FLUSH INLETS (highlight active) ─────────────────────────── */}
+      {STAGES.map((stg, i) => {
+        const fActive = [s?.flushActiveS1 ?? false, s?.flushActiveS2 ?? false, s?.flushActiveS3 ?? false];
+        const flush   = fActive[i];
+        const fy      = stg.chY + 2;
         return (
           <g key={`flush-${i}`}>
             <rect x={86} y={fy} width={18} height={12} rx={2}
-              fill="#040810" stroke={stg.color} strokeWidth={0.9} opacity={0.85} />
-            <text x={95} y={fy + 9} textAnchor="middle" fill={stg.color} fontSize={8} fontFamily={FONT}>→</text>
-            <text x={83} y={fy} textAnchor="end" fill={stg.color} fontSize={6} fontFamily={FONT}>FLUSH</text>
+              fill="#040810"
+              stroke={stg.color}
+              strokeWidth={flush ? 1.8 : 0.9}
+              opacity={flush ? 1.0 : 0.85} />
+            <text x={95} y={fy + 9} textAnchor="middle" fill={stg.color}
+              fontSize={8} fontFamily={FONT}>→</text>
+            <text x={83} y={fy} textAnchor="end" fill={stg.color}
+              fontSize={6} fontFamily={FONT}>FLUSH</text>
             {/* Bridge: inlet → channel */}
             <line x1={104} y1={stg.chY + stg.chH / 2} x2={118} y2={stg.chY + stg.chH / 2}
               stroke="#030810" strokeWidth={7} strokeLinecap="butt" />
             <line x1={104} y1={stg.chY + stg.chH / 2} x2={118} y2={stg.chY + stg.chH / 2}
-              stroke={stg.color} strokeWidth={3.5} opacity={0.7} />
+              stroke={stg.color} strokeWidth={3.5} opacity={flush ? 0.95 : 0.7} />
           </g>
         );
       })}
