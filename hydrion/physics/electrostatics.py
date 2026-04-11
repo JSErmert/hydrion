@@ -13,13 +13,18 @@ class ElectrostaticsParams:
 
     V_node tracks a commanded voltage with first-order dynamics and leakage.
     E_field_mag is proportional to |V_node|.
+
+    Voltage bounds (locked system constraints — 06_LOCKED_SYSTEM_CONSTRAINTS.md):
+        V_max_realism = 2500 V  — upper operational bound
+        V_hard_clamp  = 3000 V  — absolute safety ceiling
     """
 
-    V_max: float = 3000.0      # [V] max supply voltage
-    tau_charge: float = 0.5    # [s] time constant to reach command
-    leak_rate: float = 0.1     # [1/s] passive decay
-    gap_m: float = 0.01        # [m] characteristic gap -> E = V / gap
-    E_norm_ref: float = 3e5    # [V/m] normalize to get E_norm ~ O(1)
+    V_max_realism: float = 2500.0  # [V] upper operational bound (locked realism constraint)
+    V_hard_clamp:  float = 3000.0  # [V] absolute safety ceiling — never exceed
+    tau_charge: float = 0.5        # [s] time constant to reach command
+    leak_rate: float = 0.1         # [1/s] passive decay
+    gap_m: float = 0.01            # [m] characteristic gap -> E = V / gap (interim, M3: radial model)
+    E_norm_ref: float = 3e5        # [V/m] normalize to get E_norm ~ O(1)
     eps: float = 1e-8
 
 
@@ -43,7 +48,8 @@ class ElectrostaticsModel:
             e_raw = getattr(cfg, "raw", {}).get("electrostatics", {}) or {}
 
         self.params = ElectrostaticsParams(
-            V_max=float(e_raw.get("V_max", 3000.0)),
+            V_max_realism=float(e_raw.get("V_max_realism", 2500.0)),
+            V_hard_clamp =float(e_raw.get("V_hard_clamp",  3000.0)),
             tau_charge=float(e_raw.get("tau_charge", 0.5)),
             leak_rate=float(e_raw.get("leak_rate", 0.1)),
             gap_m=float(e_raw.get("gap_m", 0.01)),
@@ -71,7 +77,8 @@ class ElectrostaticsModel:
         node_cmd = float(np.clip(node_cmd, 0.0, 1.0))
 
         V_node = float(self.state.get("V_node", 0.0))
-        V_target = node_cmd * p.V_max
+        # Scale command against operational bound; hard clamp is the absolute ceiling
+        V_target = np.clip(node_cmd * p.V_max_realism, 0.0, p.V_hard_clamp)
 
         # First-order approach to V_target with leakage
         dV = ((V_target - V_node) / max(p.tau_charge, p.eps) - p.leak_rate * V_node) * dt

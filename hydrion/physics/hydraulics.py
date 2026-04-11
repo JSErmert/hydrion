@@ -185,20 +185,18 @@ class HydraulicsModel:
             n2 = float(np.clip(cs.get("n2", 0.0), 0.0, 1.0))
             n3 = float(np.clip(cs.get("n3", 0.0), 0.0, 1.0))
 
-        # ---- Area-normalized clog sensitivity ----
-        # Physical basis: for flow through a porous medium at fixed pore properties,
-        # resistance increase per unit fouling ∝ 1/area.
-        # A_s3 (900 cm²) is the reference → area_factor_s3 = 1.0.
-        # CALIBRATION NOTE: first-pass approximation; base resistances are unchanged.
-        A_ref   = max(p.area_s3_cm2, 1e-6)
-        k_m1_eff = p.k_m1_clog * (A_ref / max(p.area_s1_cm2, 1e-6))  # ≈ 7.5 × k_m1_clog
-        k_m2_eff = p.k_m2_clog * (A_ref / max(p.area_s2_cm2, 1e-6))  # ≈ 4.1 × k_m2_clog
-        k_m3_eff = p.k_m3_clog * 1.0                                   # area_factor = 1.0
-
-        # ---- Stage resistances ----
-        R_m1 = p.R_m1_base + k_m1_eff * n1
-        R_m2 = p.R_m2_base + k_m2_eff * n2
-        R_m3 = p.R_m3_base + k_m3_eff * n3
+        # ---- Stage resistances (R3 fix: pore-size-physics direct encoding) ----
+        # Area normalization previously scaled k_m*_eff by (A_s3/A_si), amplifying
+        # S1 and S2's fouling sensitivity 7.5× and 4.1× respectively, causing S2 to
+        # become the dominant ΔP source above ~17% fouling — physically wrong.
+        #
+        # Corrected approach: k_m*_clog values encode pore-size-dependent resistance
+        # increase per unit fouling directly. Fine mesh (5 µm) has the highest k;
+        # coarse mesh (500 µm) has the lowest. No area scaling applied.
+        # k values are set in YAML: k_m3_clog >> k_m2_clog >> k_m1_clog.
+        R_m1 = p.R_m1_base + p.k_m1_clog * n1
+        R_m2 = p.R_m2_base + p.k_m2_clog * n2
+        R_m3 = p.R_m3_base + p.k_m3_clog * n3
 
         # ---- Valve resistance ----
         R_valve = p.R_valve_min + (1.0 - valve_open) * (p.R_valve_max - p.R_valve_min)

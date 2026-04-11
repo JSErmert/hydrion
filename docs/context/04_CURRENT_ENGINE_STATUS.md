@@ -158,7 +158,7 @@ hydrion/physics/hydraulics.py  (HydraulicsModel v2)
 - No transient surge modeling
 - No temperature / viscosity variation
 - Bypass threshold implicitly coupled to P_max_Pa (see audit issue A3)
-- Area normalization inverts Stage 3 ΔP dominance intuition (see audit issue R3)
+- ~~Area normalization inverts Stage 3 ΔP dominance intuition~~ **FIXED (M1.5 — 2026-04-10)**
 
 ---
 
@@ -182,9 +182,14 @@ hydrion/physics/clogging.py  (CloggingModel v3)
 - Nonlinear deposition: `dep ∝ (ff + ε)^dep_exponent`
 - Passive shear removal: `∝ Q_in / Q_ref`
 
-### KNOWN CALIBRATION ISSUE (M1.5)
+### FIXED ISSUES (M1.5 — 2026-04-10)
 
-`dep_exponent = 2.0` creates bistable kinetics. Each stage has an unstable fixed point:
+- **R1 (bistable kinetics):** `dep_exponent` set to `1.0` in YAML. Fouling grows monotonically from clean state.
+- **C2 (component sum overflow):** Normalization added in `_update_stage()` — sum of cake+bridge+pore can no longer exceed 1.0.
+
+### Historical note (kept for reference)
+
+`dep_exponent = 2.0` created bistable kinetics. Each stage had an unstable fixed point:
 
 ```
 ff_u = shear_coeff / (dep_rate × dep_base × Q_ref)
@@ -233,15 +238,20 @@ hydrion/physics/electrostatics.py
 - Stable abstraction
 - Integrates cleanly with particle model
 
+### Changes (M1.5 — 2026-04-10)
+
+- `V_max_realism = 2500 V` enforced as operational bound (was: V_max = 3000 V, violating locked constraint)
+- `V_hard_clamp = 3000 V` added as absolute safety ceiling
+- Voltage bounds exposed in YAML under `electrostatics:` section
+
 ### Limitations
 
-- Not physically grounded yet
+- Not physically grounded yet (M3 target)
 - No conductivity dependence
 - No particle-size dependence
 - No spatial capture logic
-- No separation between:
-  - inlet conditioning
-  - lower-node capture
+- No separation between inlet conditioning and lower-node capture (M3 target)
+- E_norm is still dimensionless percentage — M3 will replace with E_field_kVm
 
 ---
 

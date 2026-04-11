@@ -54,6 +54,11 @@ class CloggingParams:
     # seed perturbation above ff_u.  For monotone growth from clean state,
     # set dep_exponent=1.0 (linear; ff_ss → ∞, saturates at 1.0 via clip).
     dep_exponent:  float = 2.0
+    # dep_floor: minimum effective fouling_frac used in the deposition driving term.
+    # Prevents the zero fixed point when dep_exponent <= 1 by ensuring a constant
+    # background deposition rate even at clean state.  Does not affect shear or
+    # backflush recovery.  Should remain << typical operational fouling level.
+    dep_floor:     float = 0.05
     shear_coeff:   float = 5e-3
     shear_Q_ref:   float = 15.0
     eps:           float = 1e-8
@@ -140,6 +145,7 @@ class CloggingModel:
             Mc3_max        = gf("Mc3_max", 1.0),
             dep_base       = gf("dep_base", 1e-3),
             dep_exponent   = gf("dep_exponent", 2.0),
+            dep_floor      = gf("dep_floor", 0.05),
             shear_coeff    = gf("shear_coeff", 5e-3),
             shear_Q_ref    = gf("shear_Q_ref", 15.0),
             eps            = gf("eps", 1e-8),
@@ -425,14 +431,15 @@ class CloggingModel:
         recoverable  = max(fouling_frac - irreversible, 0.0)
 
         # ---- Deposition ----
-        # Total rate; nonlinear via (fouling_frac + eps)^dep_exponent.
-        # With dep_exponent=2 this term is ≈0 at clean state (bistable — see
-        # CloggingParams.dep_exponent docstring).  With dep_exponent=1 it produces
-        # a constant background rate even at ff=0.
+        # Total rate; nonlinear via max(fouling_frac, dep_floor)^dep_exponent.
+        # dep_floor ensures a nonzero driving term at clean state so fouling grows
+        # from ff=0 when dep_exponent=1 (monotone, no longer bistable).
+        # With dep_exponent=2 and dep_floor=0.05, behavior above ff=0.05 is
+        # unchanged; only the near-zero regime gains a constant nucleation rate.
         dep_total = (
             dep_rate * p.dep_base
             * Q_Lmin * C_fibers
-            * (fouling_frac + p.eps) ** p.dep_exponent
+            * max(fouling_frac, p.dep_floor) ** p.dep_exponent
             * dt
         )
         d_cake   = cake_w   * dep_total
@@ -472,6 +479,16 @@ class CloggingModel:
         new_cake   = float(np.clip(cake   + d_cake   - d_shear_cake   - d_bf_cake,   0.0, 1.0))
         new_bridge = float(np.clip(bridge + d_bridge - d_shear_bridge - d_bf_bridge, 0.0, 1.0))
         new_pore   = float(np.clip(pore   + d_pore   - d_shear_pore   - d_bf_pore,   0.0, 1.0))
+
+        # ---- Component sum normalization (C2 fix) ----
+        # Each component is clipped independently, so their sum can exceed 1.0 at
+        # extreme params. Normalize so the total fouling fraction stays ≤ 1.0.
+        new_ff_raw = new_cake + new_bridge + new_pore
+        if new_ff_raw > 1.0:
+            scale      = 1.0 / new_ff_raw
+            new_cake   *= scale
+            new_bridge *= scale
+            new_pore   *= scale
 
         # Irreversible bounded by new total fouling (cannot exceed what's there)
         new_ff    = new_cake + new_bridge + new_pore

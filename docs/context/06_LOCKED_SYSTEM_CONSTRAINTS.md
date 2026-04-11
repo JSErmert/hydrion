@@ -104,7 +104,35 @@ They must be treated as **authoritative inputs** for:
 
 ---
 
-# E. Realism Prioritization
+# E. Particle Density Scope
+
+## Decision: Option A — Dense-Phase Only
+
+**Locked 2026-04-10**
+
+HydrOS targets **dense microplastics only**:
+
+- Target class: `ρ > 1.0 g/cm³`
+- Primary targets: PET (1.38), PA/nylon (1.14), PVC (1.16–1.58), biofilm-coated fragments
+- Excluded class: buoyant microplastics — PP (ρ ≈ 0.91), PE (ρ ≈ 0.95)
+
+## Collection Topology
+
+Collection tubes exit downward from the outer wall node of each stage.
+Gravity-fed downward path is physically correct for ρ > 1.0 g/cm³ particles.
+
+Buoyant-phase capture (PP, PE) requires separate upstream treatment — **out of scope**.
+Dual-path (upward + downward) collection is NOT implemented and NOT planned.
+
+## Simulation Implication
+
+The buoyant fraction (PP, PE) passes through the system uncaptured.
+`C_in_buoyant` must be tracked as pass-through in M4 particle module.
+System efficiency is defined over the dense-phase fraction only.
+
+---
+
+# F. Realism Prioritization
 
 ## Primary
 

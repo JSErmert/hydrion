@@ -30,9 +30,13 @@ hydraulics:
   R_m1_base: 1.0e7
   R_m2_base: 2.0e7
   R_m3_base: 4.0e7
-  k_m1_clog: 3.0e7
-  k_m2_clog: 4.0e7
-  k_m3_clog: 5.0e7
+  # R3 fix: k values encode pore-size-dependent fouling sensitivity directly.
+  # No area normalization applied in code (see hydraulics.py R3 fix comment).
+  # Physical ordering: fine mesh (5 µm) >> medium (100 µm) >> coarse (500 µm).
+  # At 30% fouling: dp_s3 ≈ 13× dp_s1; at 50% fouling: dp_s3 ≈ 9.5× dp_s1.
+  k_m1_clog: 2.0e7    # coarse 500 µm — low resistance increase per unit fouling
+  k_m2_clog: 8.0e7    # medium 100 µm
+  k_m3_clog: 3.0e8    # fine 5 µm pleated — dominant fouling resistance
   bf_flow_penalty: 0.8
   min_Q_Lmin: 0.0
   max_Q_Lmin: 20.0   # FIXED: was 50.0 — must equal Q_max_Lmin to prevent flow > 1.0 in obs
@@ -56,9 +60,12 @@ clogging:
 
   # Core deposition dynamics
   dep_base: 1.0e-3       # baseline deposition coefficient [AU / (L/min · s)]
-  dep_exponent: 2.0      # nonlinear exponent. KNOWN CALIBRATION ISSUE (M1.5):
+  dep_exponent: 1.0      # nonlinear exponent. FIXED (M1.5):
                          #   =2 → bistable; filter won't foul from clean reset.
-                         #   =1 → monotone growth from zero; recommended for RL training.
+                         #   =1 → monotone growth from zero; restores RL training viability.
+  dep_floor: 0.05        # minimum effective fouling_frac used in deposition term.
+                         #   Prevents clean-state zero fixed point when dep_exponent=1.
+                         #   Physically: constant nucleation/arrival rate even on clean media.
   shear_coeff: 5.0e-3    # passive shear removal coefficient [1/s]
   shear_Q_ref: 15.0      # reference flow for shear scaling [L/min]
   eps: 1.0e-8
@@ -125,6 +132,18 @@ backflush:
 
 # ---------------------------------------------------------------------------
 # Particle model (optional PSD + fiber fraction)
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Electrostatics
+# ---------------------------------------------------------------------------
+electrostatics:
+  V_max_realism: 2500.0   # [V] upper operational bound (locked: 06_LOCKED_SYSTEM_CONSTRAINTS.md)
+  V_hard_clamp:  3000.0   # [V] absolute safety ceiling — system must never exceed this
+  tau_charge:    0.5      # [s] first-order voltage rise time constant
+  leak_rate:     0.1      # [1/s] passive voltage decay
+  gap_m:         0.01     # [m] characteristic electrode gap (interim — replaced by radial model in M3)
+  E_norm_ref:    3.0e5    # [V/m] normalization reference for E_norm observation (~300 kV/m at V_hard_clamp)
+
 # ---------------------------------------------------------------------------
 particles:
   C_in_base: 0.7
