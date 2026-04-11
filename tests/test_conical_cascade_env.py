@@ -56,3 +56,39 @@ def test_flush_reduces_channel_fill():
         env.step(flush)
     assert env._state["channel_fill_s1"] < pre_fill,   "flush must drain channel_fill_s1"
     assert env._state["storage_fill"]    > pre_storage, "flush must increase storage_fill"
+
+
+def test_per_stage_eta_in_truth_state():
+    """eta_s1, eta_s2, eta_s3 must be in state and in [0,1]."""
+    env = make_env()
+    env.reset(seed=0)
+    action = np.array([0.5, 0.5, 0.0, 0.8], dtype=np.float32)
+    for _ in range(5):
+        env.step(action)
+    s = env._state
+    for key in ("eta_s1", "eta_s2", "eta_s3"):
+        assert key in s, f"{key} missing from state"
+        assert 0.0 <= s[key] <= 1.0, f"{key} out of [0,1]: {s[key]}"
+
+
+def test_stage_hierarchy_s3_dominates():
+    """S3 capture efficiency must exceed S1 on average at nominal flow."""
+    env = make_env()
+    env.reset(seed=0)
+    action = np.array([0.5, 0.5, 0.0, 0.8], dtype=np.float32)
+    eta_s1_samples, eta_s3_samples = [], []
+    for _ in range(20):
+        env.step(action)
+        eta_s1_samples.append(env._state["eta_s1"])
+        eta_s3_samples.append(env._state["eta_s3"])
+    assert np.mean(eta_s3_samples) >= np.mean(eta_s1_samples), \
+        "S3 mean efficiency must >= S1 (asymmetric stage design)"
+
+
+def test_v_crit_per_stage_in_truth_state():
+    """v_crit_s1, v_crit_s2, v_crit_s3 must be in state after step."""
+    env = make_env()
+    env.reset(seed=0)
+    env.step(np.array([0.5, 0.5, 0.0, 0.8], dtype=np.float32))
+    for key in ("v_crit_s1", "v_crit_s2", "v_crit_s3"):
+        assert key in env._state, f"{key} missing"

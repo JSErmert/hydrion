@@ -229,6 +229,11 @@ class ConicalCascadeEnv(gym.Env):
         self._state["flush_active_s1"] = 0.0
         self._state["flush_active_s2"] = 0.0
         self._state["flush_active_s3"] = 0.0
+        self._state["eta_s1"]     = 0.0
+        self._state["eta_s2"]     = 0.0
+        self._state["eta_s3"]     = 0.0
+        self._state["v_crit_s1"]  = 0.0
+        self._state["v_crit_s2"]  = 0.0
 
         return self._obs(), {}
 
@@ -304,6 +309,15 @@ class ConicalCascadeEnv(gym.Env):
         self._state["eta_PET"]      = float(results["PET"]["eta_cascade"])
         self._state["C_out"]        = float(np.clip(C_out, 0.0, C_in))
         self._state["v_crit_s3"]    = float(v_crit_s3)
+
+        # Per-stage observables for console hierarchy rendering
+        per_pet = results["PET"]["per_stage"]
+        self._state["eta_s1"] = float(per_pet[0]["eta_stage"]) if len(per_pet) > 0 else 0.0
+        self._state["eta_s2"] = float(per_pet[1]["eta_stage"]) if len(per_pet) > 1 else 0.0
+        self._state["eta_s3"] = float(per_pet[2]["eta_stage"]) if len(per_pet) > 2 else 0.0
+        self._state["v_crit_s1"] = float(per_pet[0]["v_crit"]) if len(per_pet) > 0 else 0.0
+        self._state["v_crit_s2"] = float(per_pet[1]["v_crit"]) if len(per_pet) > 1 else 0.0
+        # v_crit_s3 already written above
 
         # ── Accumulation model ────────────────────────────────────────────
         # Capture flux: each stage operates on the residual concentration
