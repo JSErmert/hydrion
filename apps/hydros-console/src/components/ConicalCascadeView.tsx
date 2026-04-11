@@ -425,6 +425,38 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
         </g>
       ))}
 
+      {/* ── APEX NODES ──────────────────────────────────────────────── */}
+      {(() => {
+        const etas   = [s?.etaS1 ?? 0, s?.etaS2 ?? 0, s?.etaS3 ?? 0];
+        const glows  = ['url(#nodeG1)', 'url(#nodeG2)', 'url(#nodeG3)'];
+        const fxIds  = ['fxSoft', 'fxSoft', 'fxStrong'];
+        const borders = ['#FB923C', '#FBBF24', '#38BDF8'];
+        // Enforce hierarchy: S3 always >= S2 >= S1 in displayed glow
+        const enforced = [
+          etas[0],
+          Math.max(etas[1], etas[0] * 1.1),
+          Math.max(etas[2], etas[1] * 1.3, 0.2),  // S3 minimum glow 0.2
+        ];
+        return STAGES.map((stg, i) => {
+          const sw = 1.8 + enforced[i] * 1.2;
+          return (
+            <g key={`node-${i}`}>
+              <ellipse cx={stg.apexX} cy={stg.apexY}
+                rx={32 * (0.7 + enforced[i] * 0.5)}
+                ry={20 * (0.7 + enforced[i] * 0.5)}
+                fill={glows[i]}
+                filter={`url(#${fxIds[i]})`} />
+              <circle cx={stg.apexX} cy={stg.apexY} r={9 + enforced[i] * 2}
+                fill="#060E1C" stroke={borders[i]} strokeWidth={sw}
+                filter={`url(#${fxIds[i]})`} />
+              <text x={stg.apexX} y={stg.apexY + 5}
+                textAnchor="middle" fill={borders[i]}
+                fontSize={12} fontFamily={FONT}>⊕</text>
+            </g>
+          );
+        });
+      })()}
+
       {/* ── STAGE SPEC LABELS ───────────────────────────────────────── */}
       {STAGES.map((stg) => (
         <text key={`spec-${stg.label}`}
