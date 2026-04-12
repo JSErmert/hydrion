@@ -42,6 +42,10 @@ from ..physics.m5 import (
     MU_WATER, RHO_WATER, EPS_R_WATER,
 )
 from ..physics.m5.conical_stage import stage_capture
+from ..physics.m5.field_models import analytical_conical_field
+from ..physics.m5.particle_dynamics import (
+    InputParticle, ParticleDynamicsEngine,
+)
 from ..physics.hydraulics import HydraulicsModel
 from ..physics.clogging   import CloggingModel
 
@@ -109,6 +113,15 @@ _CHANNEL_CAPACITY_M3 = 4e-4   # ~0.4 L per collection channel
 _STORAGE_CAPACITY_M3 = 1.2e-2  # ~12 L detachable storage chamber
 _FLUSH_DRAIN_RATE    = 0.20    # fraction of channel fill drained per bf step
 
+# ---------------------------------------------------------------------------
+# Default particle set — one representative particle per species (Phase 1)
+# ---------------------------------------------------------------------------
+_DEFAULT_PARTICLES: list[InputParticle] = [
+    InputParticle("pp-median",  "PP",  d_p_m=25e-6),
+    InputParticle("pe-median",  "PE",  d_p_m=25e-6),
+    InputParticle("pet-median", "PET", d_p_m=25e-6),
+]
+
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -152,6 +165,8 @@ class ConicalCascadeEnv(gym.Env):
         d_p_um: float = 10.0,
         seed: int | None = None,
         render_mode=None,
+        particles: list[InputParticle] | None = None,
+        log_trajectories: bool = False,
     ):
         super().__init__()
         self.render_mode = render_mode
@@ -192,6 +207,11 @@ class ConicalCascadeEnv(gym.Env):
         self._storage_fill: float       = 0.0
         self._channel_fill: list[float] = [0.0, 0.0, 0.0]
 
+        # Particle dynamics engine
+        self._particle_engine  = ParticleDynamicsEngine()
+        self._particle_set     = particles if particles is not None else list(_DEFAULT_PARTICLES)
+        self._log_trajectories = log_trajectories
+
         if seed is not None:
             self.np_random, _ = gym.utils.seeding.np_random(seed)
 
@@ -221,6 +241,7 @@ class ConicalCascadeEnv(gym.Env):
         self._state["eta_PET"]         = 0.0
         self._state["v_crit_s3"]       = 0.0
         self._state["bf_active"]       = 0.0
+        self._state["particle_streams"] = None
         self._state["voltage_norm"]    = 0.8
         self._state["storage_fill"]    = 0.0
         self._state["channel_fill_s1"] = 0.0
@@ -267,6 +288,68 @@ class ConicalCascadeEnv(gym.Env):
 
         # Scale DEP voltage by action
         stages = self._voltage_scaled_stages(volt_cmd)
+
+        # ── Particle dynamics engine — cascade routing ─────────────────────
+        # Each stage receives only particles that passed through previous stages.
+        # Voltage-scaled stages used so field_fn reflects the applied voltage.
+        bf_active = bf_cmd > 0.5
+
+        trajs_per_stage: list[list] = [[], [], []]
+        active_particles = list(self._particle_set)
+
+        for i, stg in enumerate(stages):  # `stages` is already voltage-scaled above
+            if not active_particles:
+                break
+            field_fn_i = analytical_conical_field(stg)
+            trajs = self._particle_engine.integrate(
+                particles  = active_particles,
+                stage      = stg,
+                stage_idx  = i,
+                Q_m3s      = Q_m3s,
+                field_fn   = field_fn_i,
+                dt_sim     = self._dt,
+                n_substeps = 100,
+                backflush  = bf_active,
+            )
+            trajs_per_stage[i] = trajs
+            # Cascade routing: only 'passed' particles enter the next stage
+            active_particles = [
+                InputParticle(t.particle_id, t.species, t.d_p_m)
+                for t in trajs if t.final_status == "passed"
+            ]
+
+        # Particles still in active_particles after S3 escaped the full cascade
+        escaped_device = active_particles
+
+        # Write particle_streams — final position of each particle (current step only)
+        def _make_stream(trajs_list: list) -> list[dict]:
+            return [
+                {
+                    "x_norm":  t.positions[-1][0],
+                    "r_norm":  t.positions[-1][1],
+                    "status":  t.final_status,
+                    "species": t.species,
+                }
+                for t in trajs_list
+            ]
+
+        self._state["particle_streams"] = {
+            "s1": _make_stream(trajs_per_stage[0]),
+            "s2": _make_stream(trajs_per_stage[1]),
+            "s3": _make_stream(trajs_per_stage[2]),
+        }
+
+        # Per-stage capture counts
+        for i in range(3):
+            lb = f"s{i + 1}"
+            tl = trajs_per_stage[i]
+            self._state[f"captured_pp_{lb}"]  = sum(1 for t in tl if t.species == "PP"  and t.final_status == "captured")
+            self._state[f"captured_pe_{lb}"]  = sum(1 for t in tl if t.species == "PE"  and t.final_status == "captured")
+            self._state[f"captured_pet_{lb}"] = sum(1 for t in tl if t.species == "PET" and t.final_status == "captured")
+
+        # Device-level escape counts
+        self._state["escaped_device_pp"]  = sum(1 for p in escaped_device if p.species == "PP")
+        self._state["escaped_device_pet"] = sum(1 for p in escaped_device if p.species == "PET")
 
         # Per-polymer cascade capture
         results: dict[str, Any] = {}
@@ -436,3 +519,31 @@ class ConicalCascadeEnv(gym.Env):
                 s["eta_stage"] for s in results["PET"]["per_stage"]
             ],
         }
+
+    # ------------------------------------------------------------------
+    # ScenarioRunner compatibility — mirrors HydrionEnv interface
+    # ------------------------------------------------------------------
+
+    @property
+    def truth_state(self) -> dict:
+        """
+        Expose _state as truth_state for ScenarioRunner compatibility.
+        ConicalCascadeEnv uses _state as its authoritative physics state
+        (no sensor layer). Returns the live dict — mutations are reflected.
+        """
+        return self._state
+
+    @property
+    def sensor_state(self) -> dict:
+        """
+        Return empty dict — ConicalCascadeEnv has no sensor noise layer.
+        Required by ScenarioRunner for ScenarioStepRecord.sensorState.
+        """
+        return {}
+
+    def _update_normalized_state(self) -> None:
+        """
+        Sync clogging model internal state into _state.
+        Called by apply_initial_state() after writing initial fouling.
+        """
+        self._state.update(self.clogging._state)
