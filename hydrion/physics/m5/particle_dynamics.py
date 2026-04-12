@@ -115,7 +115,7 @@ def _fluid_velocity(
     v_mean = Q_m3s / max(A_x, 1e-12)
     v_axial = 2.0 * v_mean * (1.0 - r_norm ** 2)   # Poiseuille profile
     dR_dx   = -(R_in - R_tip) / max(L_cone, 1e-12)  # constant taper
-    v_radial = (dR_dx / max(R_x, 1e-12)) * v_axial * r_norm
+    v_radial = dR_dx * v_axial * r_norm
     return v_axial, v_radial
 
 
@@ -281,9 +281,10 @@ class ParticleDynamicsEngine:
                 # Gravity projected into radial direction (see COORDINATE NOTE)
                 v_grav_r = _gravity_radial_velocity(p.d_p_m, p.species)
 
-                # Euler integration
-                p.x_norm += v_ax  * dt_sub
-                p.r_norm += (v_rad + v_dep_r + v_grav_r) * dt_sub
+                # Euler integration — convert physical velocities [m/s] to normalized coordinate rates
+                R_x_cur = R_in - (R_in - R_tip) * p.x_norm   # local cone radius at current position
+                p.x_norm += v_ax * dt_sub / L
+                p.r_norm += (v_rad + v_dep_r + v_grav_r) * dt_sub / max(R_x_cur, 1e-12)
                 p.r_norm  = float(np.clip(p.r_norm, 0.0, 1.0))  # enforce cone boundary
 
                 positions.append((p.x_norm, p.r_norm))
