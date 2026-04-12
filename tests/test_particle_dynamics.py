@@ -67,6 +67,16 @@ def test_fluid_axial_increases_toward_apex(stage_s1_fixture):
     assert v01 < v09, f"v_axial must increase toward apex. Got {v01:.3e} vs {v09:.3e}"
 
 
+def test_fluid_radial_inward_in_converging_cone(stage_s1_fixture):
+    """In a converging cone (R_in > R_tip), radial drift must be inward (toward axis)."""
+    stage = stage_s1_fixture
+    R_in  = stage.D_in_m  / 2.0
+    R_tip = stage.D_tip_m / 2.0
+    Q_m3s = 10.0 / 60000.0
+    _, v_rad = _fluid_velocity(0.5, 0.5, Q_m3s, R_in, R_tip, stage.L_cone_m)
+    assert v_rad < 0, f"Radial drift must be inward in converging cone, got {v_rad:.3e}"
+
+
 @pytest.fixture
 def stage_s1_fixture():
     return _default_stages()[0]

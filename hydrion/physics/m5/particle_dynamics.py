@@ -115,7 +115,7 @@ def _fluid_velocity(
     v_mean = Q_m3s / max(A_x, 1e-12)
     v_axial = 2.0 * v_mean * (1.0 - r_norm ** 2)   # Poiseuille profile
     dR_dx   = -(R_in - R_tip) / max(L_cone, 1e-12)  # constant taper
-    v_radial = -(dR_dx / max(R_x, 1e-12)) * v_axial * r_norm
+    v_radial = (dR_dx / max(R_x, 1e-12)) * v_axial * r_norm
     return v_axial, v_radial
 
 
