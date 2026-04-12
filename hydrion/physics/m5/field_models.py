@@ -7,7 +7,6 @@ terminal velocity via v_DEP = F_DEP / (3π μ d_p). Valid for Re_p << 1
 """
 from __future__ import annotations
 
-import math
 from typing import Callable
 
 import numpy as np
@@ -68,6 +67,8 @@ def fem_field_from_table(
     r_edges: np.ndarray,
 ) -> Callable[[float, float], float]:
     """
+    Phase 2 / NOT YET INTEGRATED — requires FEM export data.
+
     FEM field model — constructs field_fn from a 2D lookup table.
 
     Drop-in replacement for analytical_conical_field. Engine interface unchanged.
@@ -91,6 +92,6 @@ def fem_field_from_table(
     )
 
     def field_fn(x_norm: float, r_norm: float) -> float:
-        return float(interp([[x_norm, r_norm]]))
+        return float(interp([[x_norm, r_norm]])[0])
 
     return field_fn

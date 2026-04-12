@@ -10,6 +10,7 @@ Modules:
     dep_ndep       — nDEP force, v_critical, Maxwell-Wagner relaxation
     conical_stage  — single conical capture stage (RT + nDEP combined)
     polarization   — inlet polarization zone diagnostics
+    field_models   — analytical_conical_field(stage) → field_fn(x_norm, r_norm) → grad_E2
 """
 from .materials     import PP, PE, PET, EPS_R_WATER, RHO_WATER, MU_WATER, cm_factor
 from .capture_rt    import MeshSpec, MESH_S1, MESH_S2, MESH_S3_MEMBRANE, rt_single_collector, stage_capture_efficiency

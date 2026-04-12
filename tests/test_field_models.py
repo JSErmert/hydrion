@@ -3,7 +3,6 @@ Test suite for M5 field models (analytical_conical_field, fem_field_from_table).
 
 These tests validate the callable interface and physics-grounded field computation.
 """
-import math
 import pytest
 from hydrion.environments.conical_cascade_env import _default_stages
 from hydrion.physics.m5.field_models import analytical_conical_field
@@ -74,3 +73,18 @@ def test_returns_positive_values(stage_s1):
     for x in [0.0, 0.3, 0.7, 1.0]:
         for r in [0.0, 0.3, 0.7, 1.0]:
             assert field_fn(x, r) > 0, f"grad_E2 must be positive at ({x}, {r})"
+
+
+def test_fem_field_from_table_interface():
+    """fem_field_from_table returns a callable with the same interface.
+    Requires scipy — skipped if not available."""
+    scipy = pytest.importorskip("scipy")
+    import numpy as np
+    from hydrion.physics.m5.field_models import fem_field_from_table
+    x_edges = np.array([0.0, 0.5, 1.0])
+    r_edges = np.array([0.0, 0.5, 1.0])
+    table = np.ones((3, 3)) * 1e12   # uniform field
+    field_fn = fem_field_from_table(table, x_edges, r_edges)
+    result = field_fn(0.25, 0.25)
+    assert isinstance(result, float)
+    assert result == pytest.approx(1e12, rel=1e-3)
