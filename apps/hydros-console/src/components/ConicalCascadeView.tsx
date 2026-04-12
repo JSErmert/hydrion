@@ -133,7 +133,8 @@ function buildParticles(
     const r  = 1.5 + rng(i, 2) * 1.8;
     const op = 0.38 + conc * 0.42;
 
-    const captured      = rng(i, 3) < etaStage;
+    const captureRng    = Math.abs(Math.sin(stageIdx * 53.7 + i * 1.97 + 99.3)) % 1;
+    const captured      = captureRng < etaStage;
     const buoyantEscape = !captured && buoyancyActive && i % 2 === 0;
 
     let dx: number, dy: number;
