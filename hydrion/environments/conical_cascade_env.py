@@ -332,11 +332,15 @@ class ConicalCascadeEnv(gym.Env):
         # Particles still in active_particles after S3 escaped the full cascade
         escaped_device = active_particles
 
-        # Write particle_streams — final position of each particle (current step only)
+        # Write particle_streams — animated position along each trajectory.
+        # phase_frac cycles 0→1 over 10 steps so particles visibly traverse
+        # each cone stage even though each integrate() call covers a full
+        # traversal internally.
+        phase_frac = (self._step % 10) / 10.0
         self._state["particle_streams"] = {
-            "s1": self._make_stream(trajs_per_stage[0]),
-            "s2": self._make_stream(trajs_per_stage[1]),
-            "s3": self._make_stream(trajs_per_stage[2]),
+            "s1": self._make_stream(trajs_per_stage[0], phase_frac),
+            "s2": self._make_stream(trajs_per_stage[1], phase_frac),
+            "s3": self._make_stream(trajs_per_stage[2], phase_frac),
         }
 
         # Per-stage capture counts
@@ -454,37 +458,48 @@ class ConicalCascadeEnv(gym.Env):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_stream(trajs_list: list) -> list[dict]:
+    def _make_stream(trajs_list: list, phase_frac: float = 1.0) -> list[dict]:
         """
-        Return final position + trajectory trail for each particle.
+        Return an animated particle position + trail for each trajectory.
 
-        Each entry contains the terminal position (x_norm, r_norm, status, species)
-        plus a 'trail' list of up to N_TRAIL intermediate positions sampled evenly
-        from inlet to just before the final position. Trail positions are in
-        cone-local coordinates — frontend maps them to SVG space via coneToSVG.
+        phase_frac (0.0–1.0): which fraction along the in-cone trajectory
+        to show as the current particle dot. Cycling this each env step makes
+        particles appear to traverse the cone rather than always showing the
+        final (past-apex) position.
 
-        Trail enables path visualization: particles appear as a fading trail
-        through the cone converging to their capture/exit point.
+        Only positions with x_norm <= 1.0 are used — positions past the apex
+        are outside the visible SVG cone and would not render.
+
+        Trail: N_TRAIL positions immediately before the sampled position,
+        providing a fading path cue.
         """
-        N_TRAIL = 4   # intermediate positions per particle (inlet + 3 steps)
+        N_TRAIL = 4
         result = []
         for t in trajs_list:
             if not t.positions:
                 continue
-            n = len(t.positions)
-            # Sample trail positions: evenly spaced, excluding the final position
-            if n <= 1:
-                trail = []
-            else:
-                step = max(1, (n - 1) // (N_TRAIL + 1))
-                indices = list(range(0, n - 1, step))[:N_TRAIL]
-                trail = [
-                    {"x_norm": t.positions[i][0], "r_norm": t.positions[i][1]}
-                    for i in indices
-                ]
+
+            # Restrict to in-cone positions (x_norm in [0, 1])
+            inside = [(x, r) for x, r in t.positions if 0.0 <= x <= 1.0]
+            if not inside:
+                # All positions outside cone — use first position as fallback
+                inside = [t.positions[0]]
+
+            n = len(inside)
+            # Map phase_frac → index into inside positions
+            display_idx = min(int(phase_frac * n), n - 1)
+            display_pos = inside[display_idx]
+
+            # Trail: up to N_TRAIL positions before display_idx
+            trail_start = max(0, display_idx - N_TRAIL)
+            trail = [
+                {"x_norm": pos[0], "r_norm": pos[1]}
+                for pos in inside[trail_start:display_idx]
+            ]
+
             result.append({
-                "x_norm":  t.positions[-1][0],
-                "r_norm":  t.positions[-1][1],
+                "x_norm":  display_pos[0],
+                "r_norm":  display_pos[1],
                 "status":  t.final_status,
                 "species": t.species,
                 "trail":   trail,
