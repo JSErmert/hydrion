@@ -77,49 +77,149 @@ function RadialFieldLines({ xStart, xEnd, eField, mult, color }: FieldLinesProps
   return <>{lines}</>;
 }
 
-interface ParticleStreamProps {
-  xStart:  number;
-  xEnd:    number;
-  apexX:   number;
-  apexY:   number;
-  conc:    number;   // concentration entering this stage
-  etaPP:   number;   // buoyant species efficiency (for density split)
-  etaPET:  number;   // dense species efficiency
-  color:   string;
-  seed:    number;   // deterministic scatter per stage
+// ── Animated particle system ──────────────────────────────────────────────
+
+interface AnimParticle {
+  id: string;
+  cx: number;      // absolute SVG x — particle start
+  cy: number;      // absolute SVG y — particle start
+  r: number;       // dot radius
+  dx: number;      // CSS translate delta X (start → end)
+  dy: number;      // CSS translate delta Y (start → end)
+  opacity: number; // peak opacity during animation [0,1]
+  duration: number; // loop duration in seconds
+  delay: number;   // negative = staggered so stream is already in motion on mount
 }
 
-function ParticleStream({
-  xStart, xEnd, apexX, apexY, conc, etaPP, etaPET, color, seed,
-}: ParticleStreamProps) {
+/**
+ * Compute particle positions and trajectories from physics state.
+ *
+ * Captured particles curve toward (apexX, apexY) — nDEP deflection.
+ * Escaped particles drift toward the exit edge near the centreline.
+ * Buoyant escaped particles (PP-dominated escape) float slightly upward.
+ * Backflush reverses dx so particles visibly move right-to-left.
+ */
+function buildParticles(
+  stageIdx: number,
+  xStart: number,
+  xEnd: number,
+  apexX: number,
+  apexY: number,
+  conc: number,
+  etaStage: number,
+  etaPP: number,
+  etaPET: number,
+  flow: number,
+  backflush: boolean,
+): AnimParticle[] {
   const n = Math.round(conc * 18);
-  if (n === 0) return null;
+  if (n === 0) return [];
 
-  // buoyancy cue: when buoyant species escape significantly more than dense
+  // Deterministic scatter per stage (same seed logic as static version)
+  const rng = (i: number, off: number) =>
+    Math.abs(Math.sin(stageIdx * 99.1 + i * 17.3 + off)) % 1;
+
+  // Faster flow → shorter loop duration (particles move quicker)
+  const duration = Math.max(0.9, 2.6 / Math.max(flow, 0.06));
   const buoyancyActive = etaPP < etaPET * 0.75 && etaPET > 0.1;
 
-  const dots: JSX.Element[] = [];
-  // Simple deterministic pseudorandom scatter using seed
-  const rng = (i: number, offset: number) =>
-    Math.abs(Math.sin(seed * 31.7 + i * 17.3 + offset)) % 1;
-
+  const particles: AnimParticle[] = [];
   for (let i = 0; i < n; i++) {
-    const t      = rng(i, 0);
-    const x      = xStart + (apexX - xStart) * (0.1 + t * 0.85);
-    // y within concentration zone: 154 (centreline) to apexY (floor)
-    const yBase  = 154 + (apexY - 154) * (0.05 + rng(i, 1) * 0.9);
-    // buoyancy: even-indexed particles float upward when buoyancyActive
-    const yOff   = (buoyancyActive && i % 2 === 0) ? -12 * (1 - etaPP) : 0;
-    const y      = yBase + yOff;
-    const r      = 1.6 + rng(i, 2) * 1.8;
-    const op     = 0.35 + conc * 0.35;
+    const t  = rng(i, 0);
+    // Start x: left portion of stage (particles enter from left, travel right)
+    const cx = xStart + (apexX - xStart) * (0.05 + t * 0.70);
+    // Start y: concentration zone between centreline (154) and floor (apexY)
+    const cy = 154 + (apexY - 154) * (0.05 + rng(i, 1) * 0.85);
+    const r  = 1.5 + rng(i, 2) * 1.8;
+    const op = 0.38 + conc * 0.42;
 
-    dots.push(
-      <circle key={i} cx={x} cy={y} r={r}
-        fill={color} opacity={op} />
-    );
+    const captured      = rng(i, 3) < etaStage;
+    const buoyantEscape = !captured && buoyancyActive && i % 2 === 0;
+
+    let dx: number, dy: number;
+    if (backflush) {
+      // Reverse flow: push particles back toward inlet
+      dx = -(cx - xStart) - 20 - rng(i, 4) * 15;
+      dy = (154 - cy) * 0.4;
+    } else if (captured) {
+      // nDEP deflection: curves down and right toward apex trap
+      dx = apexX - cx + (rng(i, 4) - 0.5) * 8;
+      dy = apexY - cy + (rng(i, 5) - 0.5) * 4;
+    } else if (buoyantEscape) {
+      // PP buoyant escape: drifts upward toward centreline while passing through
+      dx = (xEnd - cx) * (0.3 + rng(i, 4) * 0.4);
+      dy = (154 - cy) * (0.6 + rng(i, 5) * 0.4) - 8;
+    } else {
+      // Dense escaped: passes through near centreline
+      dx = (xEnd - cx) * (0.35 + rng(i, 4) * 0.45);
+      dy = (154 - cy) * (0.15 + rng(i, 5) * 0.25);
+    }
+
+    // Negative delay staggers particles so the stream is already mid-animation on mount
+    const delay = -(rng(i, 6) * duration);
+
+    particles.push({ id: `p${stageIdx}-${i}`, cx, cy, r, dx, dy, opacity: op, duration, delay });
   }
-  return <>{dots}</>;
+  return particles;
+}
+
+/** Serialise one particle's trajectory into a CSS @keyframes string. */
+function particleKeyframes(p: AnimParticle): string {
+  return (
+    `@keyframes ${p.id}{` +
+    `0%{transform:translate(0,0);opacity:0;}` +
+    `8%{opacity:${p.opacity.toFixed(2)};}` +
+    `88%{opacity:${p.opacity.toFixed(2)};}` +
+    `100%{transform:translate(${p.dx.toFixed(1)}px,${p.dy.toFixed(1)}px);opacity:0;}}`
+  );
+}
+
+interface AnimatedParticleStreamProps {
+  stageIdx: number;
+  xStart:   number;
+  xEnd:     number;
+  apexX:    number;
+  apexY:    number;
+  conc:     number;
+  etaStage: number;  // this stage's capture efficiency (drives captured/escaped split)
+  etaPP:    number;  // buoyant species — triggers buoyant escape cue
+  etaPET:   number;  // dense species
+  flow:     number;  // [0,1] controls animation speed; < 0.05 pauses animation
+  color:    string;
+  backflush: boolean;
+}
+
+function AnimatedParticleStream({
+  stageIdx, xStart, xEnd, apexX, apexY,
+  conc, etaStage, etaPP, etaPET, flow, color, backflush,
+}: AnimatedParticleStreamProps) {
+  const paused    = flow < 0.05 && !backflush;
+  const particles = buildParticles(
+    stageIdx, xStart, xEnd, apexX, apexY,
+    conc, etaStage, etaPP, etaPET, flow, backflush,
+  );
+  if (particles.length === 0) return null;
+
+  const css = particles.map(particleKeyframes).join('');
+
+  return (
+    <>
+      <style>{css}</style>
+      {particles.map(p => (
+        <circle
+          key={p.id}
+          cx={p.cx}
+          cy={p.cy}
+          r={p.r}
+          fill={color}
+          style={{
+            animation: `${p.id} ${p.duration.toFixed(2)}s ${p.delay.toFixed(2)}s linear infinite`,
+            animationPlayState: paused ? 'paused' : 'running',
+          }}
+        />
+      ))}
+    </>
+  );
 }
 
 function FlowArrow({ x, y, opacity }: { x: number; y: number; opacity: number }) {
@@ -314,24 +414,26 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
         />
       ))}
 
-      {/* ── PARTICLE STREAMS + DENSITY SPLIT CUE ────────────────────── */}
+      {/* ── ANIMATED PARTICLE STREAMS ───────────────────────────────── */}
       {STAGES.map((stg, i) => {
-        // Concentration entering this stage decreases through cascade
         const etaArr   = [s?.etaS1 ?? 0, s?.etaS2 ?? 0, s?.etaS3 ?? 0];
         const survival = etaArr.slice(0, i).reduce((acc, e) => acc * (1 - e), 1);
         const conc     = (s?.clog ?? 0.5) * survival;
         return (
-          <ParticleStream
-            key={`ps-${stg.label}`}
+          <AnimatedParticleStream
+            key={`aps-${stg.label}`}
+            stageIdx={i}
             xStart={stg.xStart}
             xEnd={stg.xEnd}
             apexX={stg.apexX}
             apexY={stg.apexY}
             conc={conc}
+            etaStage={etaArr[i]}
             etaPP={s?.etaPP ?? 0}
             etaPET={s?.etaPET ?? 0}
+            flow={s?.flow ?? 0}
             color={stg.color}
-            seed={i + 1}
+            backflush={(s?.backflush ?? 0) > 0.5}
           />
         );
       })}
