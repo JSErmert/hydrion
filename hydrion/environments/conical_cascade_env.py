@@ -114,12 +114,23 @@ _STORAGE_CAPACITY_M3 = 1.2e-2  # ~12 L detachable storage chamber
 _FLUSH_DRAIN_RATE    = 0.20    # fraction of channel fill drained per bf step
 
 # ---------------------------------------------------------------------------
-# Default particle set — one representative particle per species (Phase 1)
+# Default particle set — three sizes per species to span the PSD (Phase 1)
+#
+# Size rationale:
+#   10 µm — weak DEP (force ∝ r²), typically passes S1 → visible in S2/S3
+#   25 µm — median, moderate DEP — baseline comparison
+#   50 µm — strong DEP + above S1/S2 mesh openings → early capture
 # ---------------------------------------------------------------------------
 _DEFAULT_PARTICLES: list[InputParticle] = [
+    InputParticle("pp-small",   "PP",  d_p_m=10e-6),
+    InputParticle("pe-small",   "PE",  d_p_m=10e-6),
+    InputParticle("pet-small",  "PET", d_p_m=10e-6),
     InputParticle("pp-median",  "PP",  d_p_m=25e-6),
     InputParticle("pe-median",  "PE",  d_p_m=25e-6),
     InputParticle("pet-median", "PET", d_p_m=25e-6),
+    InputParticle("pp-large",   "PP",  d_p_m=50e-6),
+    InputParticle("pe-large",   "PE",  d_p_m=50e-6),
+    InputParticle("pet-large",  "PET", d_p_m=50e-6),
 ]
 
 
@@ -200,7 +211,7 @@ class ConicalCascadeEnv(gym.Env):
 
         self._state: dict[str, float] = {}
         self._step = 0
-        self._max_steps = int(raw_cfg.get("max_steps", 300))
+        self._max_steps = int(raw_cfg.get("max_steps", 10_000))
         self._dt = float(raw_cfg.get("dt", 0.1))
 
         # Accumulation state — persists across steps, resets on env.reset()
@@ -444,18 +455,41 @@ class ConicalCascadeEnv(gym.Env):
 
     @staticmethod
     def _make_stream(trajs_list: list) -> list[dict]:
-        """Extract final-position summary for each trajectory. Positions list is
-        always non-empty (engine guarantees initial position on entry)."""
-        return [
-            {
-                "x_norm": t.positions[-1][0],
-                "r_norm": t.positions[-1][1],
-                "status": t.final_status,
+        """
+        Return final position + trajectory trail for each particle.
+
+        Each entry contains the terminal position (x_norm, r_norm, status, species)
+        plus a 'trail' list of up to N_TRAIL intermediate positions sampled evenly
+        from inlet to just before the final position. Trail positions are in
+        cone-local coordinates — frontend maps them to SVG space via coneToSVG.
+
+        Trail enables path visualization: particles appear as a fading trail
+        through the cone converging to their capture/exit point.
+        """
+        N_TRAIL = 4   # intermediate positions per particle (inlet + 3 steps)
+        result = []
+        for t in trajs_list:
+            if not t.positions:
+                continue
+            n = len(t.positions)
+            # Sample trail positions: evenly spaced, excluding the final position
+            if n <= 1:
+                trail = []
+            else:
+                step = max(1, (n - 1) // (N_TRAIL + 1))
+                indices = list(range(0, n - 1, step))[:N_TRAIL]
+                trail = [
+                    {"x_norm": t.positions[i][0], "r_norm": t.positions[i][1]}
+                    for i in indices
+                ]
+            result.append({
+                "x_norm":  t.positions[-1][0],
+                "r_norm":  t.positions[-1][1],
+                "status":  t.final_status,
                 "species": t.species,
-            }
-            for t in trajs_list
-            if t.positions  # guard: skip if somehow empty (should not happen)
-        ]
+                "trail":   trail,
+            })
+        return result
 
     def _voltage_scaled_stages(self, volt_norm: float) -> list[ConicalStageSpec]:
         """Return stages with voltage scaled by action (0→0V, 1→design voltage)."""

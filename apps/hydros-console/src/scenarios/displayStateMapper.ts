@@ -23,6 +23,7 @@ export interface ParticlePoint {
   y: number;        // SVG coordinate (converted from r_norm)
   status: string;   // "captured" | "passed"
   species: string;  // "PP" | "PE" | "PET"
+  trail?: Array<{ x: number; y: number }>;  // SVG-space trajectory path
 }
 
 export interface ParticleStreams {
@@ -62,6 +63,7 @@ function mapParticleStream(
     ...coneToSVG(p.x_norm, p.r_norm, stageIdx),
     status:  p.status,
     species: p.species,
+    trail:   p.trail?.map(tp => coneToSVG(tp.x_norm, tp.r_norm, stageIdx)),
   }));
 }
 

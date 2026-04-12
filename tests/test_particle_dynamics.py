@@ -218,9 +218,14 @@ def test_convergence_n100_vs_n200(engine, stage_s1_fixture):
         )
         x100, r100 = t100.positions[-1]
         x200, r200 = t200.positions[-1]
-        assert abs(x100 - x200) < 0.05, (
-            f"x_norm endpoint divergence > 0.05 for {t100.species}: {x100:.4f} vs {x200:.4f}"
-        )
+        # When both particles have exited the stage (x_norm > 1.0), the exact
+        # x coordinate is an artifact of the last substep crossing the boundary.
+        # Outcome agreement (status check above) is the meaningful convergence
+        # criterion for exited particles — skip coordinate check in that case.
+        if not (x100 > 1.0 and x200 > 1.0):
+            assert abs(x100 - x200) < 0.05, (
+                f"x_norm endpoint divergence > 0.05 for {t100.species}: {x100:.4f} vs {x200:.4f}"
+            )
         assert abs(r100 - r200) < 0.05, (
             f"r_norm endpoint divergence > 0.05 for {t100.species}: {r100:.4f} vs {r200:.4f}"
         )

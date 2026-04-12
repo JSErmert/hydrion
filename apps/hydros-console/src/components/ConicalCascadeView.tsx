@@ -90,17 +90,17 @@ const SPECIES_HUE: Record<string, string> = {
 };
 
 const STATUS_RADIUS: Record<string, number> = {
-  captured:   3.5,
-  near_wall:  2.5,
-  in_transit: 2.0,
-  passed:     1.5,
+  captured:   6.0,
+  near_wall:  4.5,
+  in_transit: 3.5,
+  passed:     3.0,
 };
 
 const STATUS_OPACITY: Record<string, number> = {
   captured:   0.95,
-  near_wall:  0.75,
-  in_transit: 0.60,
-  passed:     0.25,
+  near_wall:  0.80,
+  in_transit: 0.65,
+  passed:     0.40,
 };
 
 interface ParticleStreamRendererProps {
@@ -112,14 +112,31 @@ function ParticleStreamRenderer({ points }: ParticleStreamRendererProps) {
   return (
     <>
       {points.map((p, i) => (
-        <circle
-          key={i}
-          cx={p.x}
-          cy={p.y}
-          r={STATUS_RADIUS[p.status]  ?? 2.0}
-          fill={SPECIES_HUE[p.species] ?? '#aaaaaa'}
-          opacity={STATUS_OPACITY[p.status] ?? 0.6}
-        />
+        <g key={i}>
+          {/* Trajectory trail — faint dots from inlet toward capture/exit point */}
+          {p.trail?.map((tp, ti) => {
+            const trailLen = p.trail!.length;
+            const opacity  = 0.15 + (ti / trailLen) * 0.30;  // dims toward inlet
+            return (
+              <circle
+                key={ti}
+                cx={tp.x}
+                cy={tp.y}
+                r={2.0}
+                fill={SPECIES_HUE[p.species] ?? '#aaaaaa'}
+                opacity={opacity}
+              />
+            );
+          })}
+          {/* Final position — full status-driven visual */}
+          <circle
+            cx={p.x}
+            cy={p.y}
+            r={STATUS_RADIUS[p.status]  ?? 3.5}
+            fill={SPECIES_HUE[p.species] ?? '#aaaaaa'}
+            opacity={STATUS_OPACITY[p.status] ?? 0.65}
+          />
+        </g>
       ))}
     </>
   );

@@ -178,6 +178,7 @@ export interface ParticlePointRaw {
   r_norm: number;
   status: string;   // "captured" | "passed"
   species: string;  // "PP" | "PE" | "PET"
+  trail?: Array<{ x_norm: number; r_norm: number }>;  // sampled trajectory path (cone-local)
 }
 
 /** One runtime step from a scenario execution. */

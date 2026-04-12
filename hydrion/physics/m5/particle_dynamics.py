@@ -284,7 +284,13 @@ class ParticleDynamicsEngine:
                 # Euler integration — convert physical velocities [m/s] to normalized coordinate rates
                 R_x_cur = R_in - (R_in - R_tip) * p.x_norm   # local cone radius at current position
                 p.x_norm += v_ax * dt_sub / L
-                p.r_norm += (v_rad + v_dep_r + v_grav_r) * dt_sub / max(R_x_cur, 1e-12)
+                # COORDINATE GEOMETRY NOTE: r_norm = r_physical / R(x).
+                # The fluid radial velocity v_rad = dR/dx * v_ax * r_norm exactly cancels
+                # the geometric correction term that arises from R(x) changing as the particle
+                # moves axially. Including v_rad double-counts cone convergence and spuriously
+                # drives all particles to the apex regardless of size or DEP force.
+                # Only DEP and gravity drive changes in r_norm. (BUG-3 fix)
+                p.r_norm += (v_dep_r + v_grav_r) * dt_sub / max(R_x_cur, 1e-12)
                 p.r_norm  = float(np.clip(p.r_norm, 0.0, 1.0))  # enforce cone boundary
 
                 positions.append((p.x_norm, p.r_norm))

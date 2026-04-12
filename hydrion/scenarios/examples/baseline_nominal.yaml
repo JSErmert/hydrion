@@ -21,6 +21,6 @@ particleProfile:
 
 disturbances: []
 
-durationSec: 300
+durationSec: 30
 dt: 0.1
 seed: 42
