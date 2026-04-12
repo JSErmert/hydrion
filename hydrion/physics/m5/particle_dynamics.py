@@ -240,7 +240,16 @@ class ParticleDynamicsEngine:
 
         # Negative Q reverses axial flow; DEP field unchanged
         Q_eff  = -abs(Q_m3s) if backflush else Q_m3s
-        dt_sub = dt_sim / max(n_substeps, 1)
+
+        # Physics-scaled dt_sub: n_substeps covers the full cone traverse.
+        # dt_sim is kept in the signature for API compatibility (Task 4) but is
+        # NOT used for substep sizing — dividing dt_sim by n_substeps gave
+        # dt_sub=0.01s whereas the actual transit time is ~7s, so particles
+        # never reached x_norm>=1.0 and 0% capture resulted (BUG-2).
+        A_in = math.pi * R_in ** 2
+        v_mean_inlet = abs(Q_m3s) / max(A_in, 1e-12)
+        transit_time_est = L / max(v_mean_inlet, 1e-12)
+        dt_sub = transit_time_est / max(n_substeps, 1)
 
         trajectories: list[ParticleTrajectory] = []
 

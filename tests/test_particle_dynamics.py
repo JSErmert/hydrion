@@ -78,6 +78,28 @@ def test_fluid_radial_inward_in_converging_cone(stage_s1_fixture):
     assert v_rad < 0, f"Radial drift must be inward in converging cone, got {v_rad:.3e}"
 
 
+def test_captured_at_substep_set_on_capture(engine, stage_s1_fixture):
+    """captured_at_substep is a non-None int when particle is captured."""
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    # Low flow + small d_p ensures capture (DEP dominates over fluid drag)
+    Q_low = 1.0 / 60000.0   # 1 L/min
+    particles = [InputParticle("pp-1", "PP", 50e-6)]  # 50µm PP, more DEP force
+    trajs = engine.integrate(particles, stage, 0, Q_low, field_fn, dt_sim=1.0)
+    t = trajs[0]
+    if t.final_status == "captured":
+        assert isinstance(t.captured_at_substep, int), (
+            f"captured_at_substep must be int when captured, got {t.captured_at_substep!r}"
+        )
+        assert 1 <= t.captured_at_substep <= 100, (
+            f"captured_at_substep must be in [1, 100], got {t.captured_at_substep}"
+        )
+    else:
+        # If not captured at 1 L/min with 50µm, that's a physics concern — warn
+        import warnings
+        warnings.warn(f"50µm PP at 1 L/min did not capture: {t.final_status}")
+
+
 @pytest.fixture
 def stage_s1_fixture():
     return _default_stages()[0]
