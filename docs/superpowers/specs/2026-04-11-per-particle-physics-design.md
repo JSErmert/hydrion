@@ -36,7 +36,7 @@ Three layers. Physics authority flows downward. No physics crosses the Python→
 │                         — logs full trajectories    │
 │                           only when flag=True       │
 └──────────────────────┬──────────────────────────────┘
-                       │ [{x, y, status, species}] per step
+                       │ [{x_norm, r_norm, status, species}] per step (stage-local)
 ┌──────────────────────▼──────────────────────────────┐
 │  Console Layer (TypeScript)                         │
 │  displayStateMapper.ts — maps to SVG coordinates   │
@@ -144,6 +144,25 @@ where:
 
 All three terms are dimensionally consistent `[m/s]` before summing. **This assumption must be stated explicitly in the module docstring and each force method.**
 
+### Coordinate note — r_norm is cone-local, not world-space vertical
+
+`r_norm` represents fractional radial distance from the flow axis to the local cone wall. It is **not** a world-space vertical position. Gravity and buoyancy forces are projected into this reduced radial direction as a modeling approximation, valid when the cone flow axis is horizontal so that physical vertical ≈ radial. This approximation is exact for a horizontal cone; it breaks down for arbitrary cone orientations. This must be documented in code at the point where `v_gravity` is added to `vr`.
+
+### Status semantics — stage-local vs device-level
+
+All statuses are **stage-local** unless otherwise noted.
+
+| Status | Scope | Terminal? | Meaning |
+|--------|-------|-----------|---------|
+| `in_transit` | Stage-local | No — transient | Particle actively being integrated |
+| `near_wall` | Stage-local | No — transient | Particle within `ε_wall` of local wall; capture evaluated next substep |
+| `captured` | Stage-local | Yes | Particle captured in this stage; does not proceed to next stage |
+| `passed` | Stage-local | Yes | Particle exited this stage at apex (x_norm ≥ 1.0); routes to next stage |
+
+Device-level outcome: a particle that `passed` all three stages has **escaped the cascade**. This is tracked by the environment (Section 3), not by the engine.
+
+`ParticleTrajectory.final_status` is always one of `captured` or `passed`. `in_transit` and `near_wall` are only valid in `SimParticle.status` (internal integration state). They must not appear as a `final_status`.
+
 ### Data structures
 
 ```python
@@ -156,25 +175,28 @@ class InputParticle:
 
 @dataclass
 class SimParticle:
-    """Internal integration state. One instance per substep per particle."""
+    """Internal integration state. One instance per substep per particle.
+    status is stage-local and transient during integration."""
     particle_id: str
     species: str
     d_p_m: float
     x_norm: float       # axial [0=inlet, 1=apex]
-    r_norm: float       # radial [0=axis, 1=local wall]
+    r_norm: float       # cone-local radial [0=axis, 1=local wall] — NOT world-space vertical
     vx: float           # axial velocity [m/s]
     vr: float           # radial velocity [m/s]
-    status: str         # "in_transit" | "near_wall" | "captured" | "escaped"
+    status: str         # "in_transit" | "near_wall" (transient) | "captured" | "passed" (terminal)
 
 @dataclass
 class ParticleTrajectory:
-    """Full integration record. Returned by engine. Used for research export."""
+    """Full integration record for one particle through one stage.
+    Returned by engine per stage. Used for research export.
+    final_status is always 'captured' or 'passed' — never 'in_transit' or 'near_wall'."""
     particle_id: str
     species: str
     d_p_m: float
     stage_idx: int
     positions: list[tuple[float, float]]   # (x_norm, r_norm) per substep
-    final_status: str
+    final_status: str                      # "captured" | "passed" — stage-local terminal outcome
     captured_at_substep: int | None
 ```
 
@@ -234,14 +256,14 @@ Upgrade path to RK2 is mechanical — same force functions, different integratio
 
 ### Capture and escape logic
 
-Four states:
+`near_wall` is a **transient geometric condition**, not a terminal outcome. A particle in `near_wall` continues integrating. It transitions to `captured` if a capture condition is met, or to `passed` if it exits the stage. `near_wall` must never appear as `final_status`.
 
-| State | Condition |
-|-------|-----------|
-| `in_transit` | Default — no condition met |
-| `near_wall` | `r_norm >= (1.0 - ε_wall)` where `ε_wall = 0.05` |
-| `captured` | See below |
-| `escaped` | `x_norm >= 1.0` |
+| State | Type | Condition |
+|-------|------|-----------|
+| `in_transit` | Transient | Default — no condition met |
+| `near_wall` | Transient | `r_norm >= (1.0 - ε_wall)` where `ε_wall = 0.05` |
+| `captured` | Terminal | See below — stage-local |
+| `passed` | Terminal | `x_norm >= 1.0` — exited stage; routes to next stage |
 
 **Captured — two independent mechanisms:**
 
@@ -257,10 +279,21 @@ Four states:
 
 **near_wall without RT capture:**
 - Particle is at wall but `d_p_um <= mesh.opening_um`
-- Continues in `near_wall` state — may slide along wall, be captured at apex, or escape
-- nDEP force at this position will be at its maximum (wall_enhancement peak) — strong inward push
+- Continues integrating in `near_wall` state — nDEP at this position is at maximum wall_enhancement, pushing inward
+- May transition to `captured` (apex trap), remain `near_wall`, or reach `passed`
 
 **Note:** `v_r_toward_wall > 0` is NOT a capture indicator. In an nDEP device, wall-directed radial velocity means DEP is insufficient — this is the failure mode, not the capture mode.
+
+### Backflush mode
+
+When `backflush > 0.5` (env state), the engine receives a negative flow rate signal. Phase 1 rules:
+
+1. **Axial velocity reversed:** `v_mean(x_norm) = -|Q_backflush| / A(x_norm)` — particles move toward inlet (decreasing x_norm)
+2. **Field stays active:** Voltage applied during flush to maintain nDEP repulsion from wall; reduces re-deposition of flushed particles onto walls
+3. **Capture logic suspended:** No new captures during backflush. A particle cannot be captured while backflush is active — it is being flushed outward.
+4. **Already-captured particles remain captured:** Detachment model deferred to a future phase. Phase 1 treats captured particles as permanently fixed once captured.
+
+Terminal condition during backflush: `x_norm <= 0.0` → particle has exited the inlet end → status `passed` (flushed out). This routes to the run's waste stream, not the next stage.
 
 ### Engine class
 
@@ -311,7 +344,9 @@ _DEFAULT_PARTICLES = [
 
 One particle per species at median diameter. Caller can override via env constructor.
 
-### Per-step call
+### Per-step call — cascade routing
+
+Each stage receives only particles that passed (were not captured by) the previous stage. The output of one stage is the input of the next. This is not implicit — it is the explicit routing rule.
 
 ```python
 # In ConicalCascadeEnv.__init__:
@@ -322,9 +357,14 @@ self._log_trajectories: bool = log_trajectories  # constructor flag, default Fal
 
 # In ConicalCascadeEnv.step():
 all_trajectories = []
+active_particles = list(self._particle_set)  # full set enters S1
+
 for i, stage in enumerate(self._stages):
+    if not active_particles:
+        break  # all particles captured upstream — no work to do
+
     trajs = self._particle_engine.integrate(
-        particles  = self._particle_set,
+        particles  = active_particles,          # survivors from previous stage only
         stage      = stage,
         stage_idx  = i,
         Q_m3s      = float(self._state["Q_m3s"]),
@@ -333,6 +373,15 @@ for i, stage in enumerate(self._stages):
         n_substeps = 100,
     )
     all_trajectories.extend(trajs)
+
+    # Route survivors: only particles that passed this stage proceed to the next
+    active_particles = [
+        InputParticle(t.particle_id, t.species, t.d_p_m)
+        for t in trajs if t.final_status == "passed"
+    ]
+
+# Particles remaining in active_particles after S3 have escaped the full cascade
+escaped_device = active_particles
 ```
 
 ### Runtime state (minimal — console-facing)
@@ -340,7 +389,7 @@ for i, stage in enumerate(self._stages):
 Written to `self._state` every step. Rewritten completely each step. No history.
 
 ```python
-# Per stage (s1, s2, s3):
+# Per stage (s1, s2, s3) — stage-local statuses ("captured" | "passed"):
 self._state["particle_positions_s1"] = [
     {"x_norm": t.positions[-1][0], "r_norm": t.positions[-1][1],
      "status": t.final_status, "species": t.species}
@@ -349,6 +398,10 @@ self._state["particle_positions_s1"] = [
 self._state["captured_pp_s1"]  = sum(1 for t in trajs_s1 if t.species == "PP"  and t.final_status == "captured")
 self._state["captured_pet_s1"] = sum(1 for t in trajs_s1 if t.species == "PET" and t.final_status == "captured")
 # ... repeat for s2, s3
+
+# Device-level escaped count (passed all three stages):
+self._state["escaped_device_pp"]  = sum(1 for p in escaped_device if p.species == "PP")
+self._state["escaped_device_pet"] = sum(1 for p in escaped_device if p.species == "PET")
 ```
 
 ### Research logging (opt-in)
@@ -417,13 +470,31 @@ particleStreams: ParticleStreams | null;
 
 Replace `AnimatedParticleStream` with `ParticleStreamRenderer`:
 
+**Species/status visual encoding rule:**
+
+Species separation is a primary research output. The renderer must encode both dimensions independently:
+- **Species → hue.** The color of a particle identifies what it is.
+- **Status → radius and opacity.** The emphasis indicates what is happening to it.
+
+Do not use status-only coloring — it would make PP and PET indistinguishable, defeating the purpose of showing species separation.
+
 ```tsx
 interface ParticleStreamRendererProps {
   points: ParticlePoint[];
-  stageColor: string;
 }
 
-function ParticleStreamRenderer({ points, stageColor }: ParticleStreamRendererProps) {
+// Species hue — identifies the particle type
+const SPECIES_HUE: Record<string, string> = {
+  PP:  '#7fff7f',   // green   — buoyant, low density
+  PE:  '#4a9eff',   // blue    — buoyant, slightly denser than PP
+  PET: '#ff9966',   // orange  — sinking, high density
+};
+
+// Status modifies radius and opacity only — not hue
+const STATUS_RADIUS:  Record<string, number> = { captured: 3.5, near_wall: 2.5, in_transit: 2.0, passed: 1.5 };
+const STATUS_OPACITY: Record<string, number> = { captured: 0.95, near_wall: 0.75, in_transit: 0.6, passed: 0.25 };
+
+function ParticleStreamRenderer({ points }: ParticleStreamRendererProps) {
   if (!points.length) return null;
   return (
     <>
@@ -433,17 +504,13 @@ function ParticleStreamRenderer({ points, stageColor }: ParticleStreamRendererPr
           cx={p.x}
           cy={p.y}
           r={STATUS_RADIUS[p.status] ?? 2}
-          fill={STATUS_COLOR[p.status] ?? stageColor}
-          opacity={STATUS_OPACITY[p.status] ?? 0.7}
+          fill={SPECIES_HUE[p.species] ?? '#aaaaaa'}
+          opacity={STATUS_OPACITY[p.status] ?? 0.6}
         />
       ))}
     </>
   );
 }
-
-const STATUS_RADIUS:  Record<string, number> = { captured: 3.5, near_wall: 2.5, in_transit: 2, escaped: 1.5 };
-const STATUS_COLOR:   Record<string, string> = { captured: '#ffdd44', near_wall: '#ff7744', escaped: '#888888' };
-const STATUS_OPACITY: Record<string, number> = { captured: 0.9, near_wall: 0.7, in_transit: 0.6, escaped: 0.3 };
 ```
 
 No CSS keyframes. No animation state. No physics. Positions update at the existing API poll rate.
@@ -459,7 +526,7 @@ No CSS keyframes. No animation state. No physics. Positions update at the existi
 | `grad_E2_apex` | `DEPConfig` (existing) | Hemisphere-on-post estimate | [DESIGN_DEFAULT] | FEM or voltage sweep calibration |
 | `ε_wall` | `particle_dynamics.py` | 0.05 | [DESIGN_DEFAULT] | Calibrate to observed near-wall behavior |
 | Apex trap threshold | `particle_dynamics.py` | `x_norm >= 0.90, r_norm <= 0.25` | [DESIGN_DEFAULT] | Calibrate to cone geometry and observed trapping zone |
-| `n_substeps` | `conical_cascade_env.py` | 100 | Tunable | Convergence test: vary until trajectories stabilise |
+| `n_substeps` | `conical_cascade_env.py` | 100 | Tunable | Convergence criterion: run at 50, 100, 200. Accept n if all particle endpoint positions satisfy \|x_norm(n) − x_norm(2n)\| < 0.01 AND capture outcomes (captured/passed) agree for all particles. Default 100 is not arbitrary — it passes this criterion for the design-default geometry and flow range. Must be re-validated when geometry changes. |
 
 ---
 
@@ -469,6 +536,7 @@ No CSS keyframes. No animation state. No physics. Positions update at the existi
 - Captured fraction from engine is consistent with (but not necessarily equal to) RT 1976 aggregate `eta_stage`
 - PP particles drift upward (buoyancy), PET drift downward — visible species separation
 - At high flow, more particles escape before reaching apex — flow-speed dependence visible
-- At backflush (`backflush > 0.5`), particles move right-to-left — direction reversal correct
+- At backflush (`backflush > 0.5`), axial fluid velocity is negative — particles move toward inlet, no new captures occur
+- n_substeps convergence verified: capture outcomes agree between n=100 and n=200 for all particles in default geometry
 - Full trajectory logging produces importable data for external analysis (numpy/pandas)
 - Console renders from Python output only — confirmed by removing API call and observing static display
