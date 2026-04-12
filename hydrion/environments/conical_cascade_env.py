@@ -322,34 +322,23 @@ class ConicalCascadeEnv(gym.Env):
         escaped_device = active_particles
 
         # Write particle_streams — final position of each particle (current step only)
-        def _make_stream(trajs_list: list) -> list[dict]:
-            return [
-                {
-                    "x_norm":  t.positions[-1][0],
-                    "r_norm":  t.positions[-1][1],
-                    "status":  t.final_status,
-                    "species": t.species,
-                }
-                for t in trajs_list
-            ]
-
         self._state["particle_streams"] = {
-            "s1": _make_stream(trajs_per_stage[0]),
-            "s2": _make_stream(trajs_per_stage[1]),
-            "s3": _make_stream(trajs_per_stage[2]),
+            "s1": self._make_stream(trajs_per_stage[0]),
+            "s2": self._make_stream(trajs_per_stage[1]),
+            "s3": self._make_stream(trajs_per_stage[2]),
         }
 
         # Per-stage capture counts
         for i in range(3):
             lb = f"s{i + 1}"
             tl = trajs_per_stage[i]
-            self._state[f"captured_pp_{lb}"]  = sum(1 for t in tl if t.species == "PP"  and t.final_status == "captured")
-            self._state[f"captured_pe_{lb}"]  = sum(1 for t in tl if t.species == "PE"  and t.final_status == "captured")
-            self._state[f"captured_pet_{lb}"] = sum(1 for t in tl if t.species == "PET" and t.final_status == "captured")
+            self._state[f"captured_pp_{lb}"]  = int(sum(1 for t in tl if t.species == "PP"  and t.final_status == "captured"))
+            self._state[f"captured_pe_{lb}"]  = int(sum(1 for t in tl if t.species == "PE"  and t.final_status == "captured"))
+            self._state[f"captured_pet_{lb}"] = int(sum(1 for t in tl if t.species == "PET" and t.final_status == "captured"))
 
         # Device-level escape counts
-        self._state["escaped_device_pp"]  = sum(1 for p in escaped_device if p.species == "PP")
-        self._state["escaped_device_pet"] = sum(1 for p in escaped_device if p.species == "PET")
+        self._state["escaped_device_pp"]  = int(sum(1 for p in escaped_device if p.species == "PP"))
+        self._state["escaped_device_pet"] = int(sum(1 for p in escaped_device if p.species == "PET"))
 
         # Per-polymer cascade capture
         results: dict[str, Any] = {}
@@ -452,6 +441,21 @@ class ConicalCascadeEnv(gym.Env):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_stream(trajs_list: list) -> list[dict]:
+        """Extract final-position summary for each trajectory. Positions list is
+        always non-empty (engine guarantees initial position on entry)."""
+        return [
+            {
+                "x_norm": t.positions[-1][0],
+                "r_norm": t.positions[-1][1],
+                "status": t.final_status,
+                "species": t.species,
+            }
+            for t in trajs_list
+            if t.positions  # guard: skip if somehow empty (should not happen)
+        ]
 
     def _voltage_scaled_stages(self, volt_norm: float) -> list[ConicalStageSpec]:
         """Return stages with voltage scaled by action (0→0V, 1→design voltage)."""

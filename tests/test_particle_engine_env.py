@@ -58,24 +58,33 @@ def test_sensor_state_property(env):
 
 def test_cascade_routing_s2_receives_only_passed(env):
     """
-    Particles in s2 must have been 'passed' from s1 — cascade routing.
-    If all 3 particles are captured in s1, s2 and s3 must be empty.
+    Cascade routing: s2 count <= s1 count.
+    At full voltage + low flow, all S1 particles capture → s2 is empty.
     """
-    # Use low flow to maximize capture in s1
+    # Low flow + full voltage: maximize S1 capture
     action = np.array([0.3, 0.3, 0.0, 1.0], dtype=np.float32)
     env.step(action)
     ps = env._state["particle_streams"]
     n_s1 = len(ps["s1"])
     n_s2 = len(ps["s2"])
-    # s2 count <= s1 count (cascade can only reduce, never add particles)
+    # Monotone count reduction invariant
     assert n_s2 <= n_s1, f"s2 ({n_s2}) cannot have more particles than s1 ({n_s1})"
+    # Strong check: particles captured in s1 cannot appear in s2
+    captured_in_s1 = sum(1 for pt in ps["s1"] if pt["status"] == "captured")
+    if captured_in_s1 == n_s1 and n_s1 > 0:
+        assert n_s2 == 0, (
+            f"All {n_s1} s1 particles captured; s2 must be empty but has {n_s2}"
+        )
 
 
 def test_backflush_no_captures_in_streams(env):
-    """During backflush, all particle_streams entries must have status='passed'."""
+    """During backflush, all particle_streams entries must have status='passed'.
+    Verifies both that particles appear AND that none are captured."""
     action = np.array([0.5, 0.5, 1.0, 0.8], dtype=np.float32)  # bf_cmd=1.0
     env.step(action)
     ps = env._state["particle_streams"]
+    total_particles = sum(len(ps[k]) for k in ("s1", "s2", "s3"))
+    assert total_particles > 0, "Backflush must produce at least one particle in streams"
     for key in ("s1", "s2", "s3"):
         for pt in ps[key]:
             assert pt["status"] == "passed", (
