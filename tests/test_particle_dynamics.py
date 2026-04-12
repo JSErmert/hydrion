@@ -7,6 +7,7 @@ from hydrion.physics.m5.particle_dynamics import (
     InputParticle, SimParticle, ParticleTrajectory,
     _fluid_velocity, _dep_radial_velocity, _gravity_radial_velocity,
 )
+from hydrion.physics.m5.particle_dynamics import ParticleDynamicsEngine
 from hydrion.physics.m5.materials import MU_WATER, RHO_WATER
 from hydrion.environments.conical_cascade_env import _default_stages
 from hydrion.physics.m5.field_models import analytical_conical_field
@@ -80,3 +81,136 @@ def test_fluid_radial_inward_in_converging_cone(stage_s1_fixture):
 @pytest.fixture
 def stage_s1_fixture():
     return _default_stages()[0]
+
+
+@pytest.fixture
+def engine():
+    return ParticleDynamicsEngine()
+
+
+def test_integrate_returns_one_trajectory_per_particle(engine, stage_s1_fixture):
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    particles = [
+        InputParticle("pp-1", "PP",  25e-6),
+        InputParticle("pe-1", "PE",  25e-6),
+        InputParticle("pet-1","PET", 25e-6),
+    ]
+    trajs = engine.integrate(particles, stage, 0, 10.0/60000.0, field_fn, dt_sim=1.0)
+    assert len(trajs) == 3
+
+
+def test_final_status_is_terminal(engine, stage_s1_fixture):
+    """final_status must always be 'captured' or 'passed' — never 'in_transit' or 'near_wall'."""
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    particles = [InputParticle(f"p{i}", sp, 25e-6) for i, sp in enumerate(["PP","PE","PET"])]
+    trajs = engine.integrate(particles, stage, 0, 10.0/60000.0, field_fn, dt_sim=1.0)
+    for t in trajs:
+        assert t.final_status in ("captured", "passed"), (
+            f"final_status must be terminal, got '{t.final_status}' for {t.species}"
+        )
+
+
+def test_deterministic(engine, stage_s1_fixture):
+    """Same inputs must produce identical trajectories (no randomness)."""
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    particles = [InputParticle("pp-1", "PP", 25e-6)]
+    Q = 10.0 / 60000.0
+
+    trajs_a = engine.integrate(particles, stage, 0, Q, field_fn, dt_sim=1.0)
+    trajs_b = engine.integrate(particles, stage, 0, Q, field_fn, dt_sim=1.0)
+
+    assert trajs_a[0].final_status == trajs_b[0].final_status
+    assert trajs_a[0].positions[-1] == trajs_b[0].positions[-1]
+
+
+def test_pp_drifts_inward_relative_to_pet(engine, stage_s1_fixture):
+    """
+    PP is buoyant (floats toward axis) and has same nDEP as PET.
+    At low flow, both captured. At high flow where some escape:
+    PP should end at lower r_norm than PET (due to buoyancy assisting inward drift).
+    """
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    # Use high flow to ensure escaped particles (species separation visible in passed set)
+    Q_high = 20.0 / 60000.0   # 20 L/min — above typical capture range
+    pp  = InputParticle("pp-1",  "PP",  25e-6)
+    pet = InputParticle("pet-1", "PET", 25e-6)
+    trajs = engine.integrate([pp, pet], stage, 0, Q_high, field_fn, dt_sim=1.0)
+    t_pp  = next(t for t in trajs if t.species == "PP")
+    t_pet = next(t for t in trajs if t.species == "PET")
+    # Final r_norm: PP should be lower (toward axis) than PET (toward wall)
+    r_pp  = t_pp.positions[-1][1]
+    r_pet = t_pet.positions[-1][1]
+    assert r_pp < r_pet, (
+        f"PP (buoyant) should end closer to axis than PET (dense). "
+        f"r_PP={r_pp:.3f} r_PET={r_pet:.3f}"
+    )
+
+
+def test_high_flow_increases_passed_fraction(engine, stage_s1_fixture):
+    """At higher flow, fewer particles should be captured (more pass through)."""
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    particles = [InputParticle(f"pp-{i}", "PP", 25e-6) for i in range(3)]
+
+    Q_low  = 5.0  / 60000.0
+    Q_high = 18.0 / 60000.0
+
+    trajs_low  = engine.integrate(particles, stage, 0, Q_low,  field_fn, dt_sim=1.0)
+    trajs_high = engine.integrate(particles, stage, 0, Q_high, field_fn, dt_sim=1.0)
+
+    captured_low  = sum(1 for t in trajs_low  if t.final_status == "captured")
+    captured_high = sum(1 for t in trajs_high if t.final_status == "captured")
+
+    assert captured_low >= captured_high, (
+        f"Higher flow should not increase captures. "
+        f"low={captured_low} high={captured_high}"
+    )
+
+
+def test_convergence_n100_vs_n200(engine, stage_s1_fixture):
+    """
+    Substep convergence: capture outcomes must agree between n=100 and n=200.
+    Final positions must agree within 0.01.
+    """
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    Q = 10.0 / 60000.0
+    particles = [
+        InputParticle("pp-1",  "PP",  25e-6),
+        InputParticle("pe-1",  "PE",  25e-6),
+        InputParticle("pet-1", "PET", 25e-6),
+    ]
+
+    trajs_100 = engine.integrate(particles, stage, 0, Q, field_fn, dt_sim=1.0, n_substeps=100)
+    trajs_200 = engine.integrate(particles, stage, 0, Q, field_fn, dt_sim=1.0, n_substeps=200)
+
+    for t100, t200 in zip(trajs_100, trajs_200):
+        assert t100.final_status == t200.final_status, (
+            f"Outcome diverges between n=100 and n=200 for {t100.species}: "
+            f"{t100.final_status} vs {t200.final_status}"
+        )
+        x100, r100 = t100.positions[-1]
+        x200, r200 = t200.positions[-1]
+        assert abs(x100 - x200) < 0.01, (
+            f"x_norm endpoint divergence > 0.01 for {t100.species}: {x100:.4f} vs {x200:.4f}"
+        )
+        assert abs(r100 - r200) < 0.01, (
+            f"r_norm endpoint divergence > 0.01 for {t100.species}: {r100:.4f} vs {r200:.4f}"
+        )
+
+
+def test_backflush_no_captures(engine, stage_s1_fixture):
+    """During backflush, capture logic is suspended — no particle may be captured."""
+    stage = stage_s1_fixture
+    field_fn = analytical_conical_field(stage)
+    Q = 10.0 / 60000.0
+    particles = [InputParticle(f"p{i}", sp, 25e-6) for i, sp in enumerate(["PP","PE","PET"])]
+    trajs = engine.integrate(particles, stage, 0, Q, field_fn, dt_sim=1.0, backflush=True)
+    for t in trajs:
+        assert t.final_status == "passed", (
+            f"No captures during backflush. Got '{t.final_status}' for {t.species}"
+        )

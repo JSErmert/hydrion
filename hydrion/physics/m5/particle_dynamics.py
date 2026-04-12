@@ -218,5 +218,101 @@ class ParticleDynamicsEngine:
         n_substeps: int = 100,
         backflush: bool = False,
     ) -> list[ParticleTrajectory]:
-        # Implemented in Task 3
-        raise NotImplementedError("Task 3: implement integrate()")
+        """
+        Euler integration of all particles through one conical stage.
+
+        Each particle starts at (x_norm=0.0, r_norm=0.5) — stage inlet, mid-radius.
+        Substep dt = dt_sim / n_substeps.
+
+        Upgrade path: replace Euler step with RK2 using same _fluid_velocity,
+        _dep_radial_velocity, _gravity_radial_velocity functions.
+
+        Backflush mode:
+            - Q_m3s negated → axial velocity reversed (particles move toward inlet)
+            - Field stays active (nDEP prevents wall re-deposition)
+            - Capture logic suspended (no new captures)
+            - Exit at x_norm <= 0.0 → status 'passed' (flushed to waste stream)
+        """
+        R_in  = stage.D_in_m  / 2.0
+        R_tip = stage.D_tip_m / 2.0
+        L     = stage.L_cone_m
+        mesh_opening_um = stage.mesh.opening_um
+
+        # Negative Q reverses axial flow; DEP field unchanged
+        Q_eff  = -abs(Q_m3s) if backflush else Q_m3s
+        dt_sub = dt_sim / max(n_substeps, 1)
+
+        trajectories: list[ParticleTrajectory] = []
+
+        for inp in particles:
+            p = SimParticle(
+                particle_id=inp.particle_id,
+                species=inp.species,
+                d_p_m=inp.d_p_m,
+                x_norm=0.0,
+                r_norm=0.5,   # [DESIGN_DEFAULT] mid-radius starting position
+                vx=0.0,
+                vr=0.0,
+                status="in_transit",
+            )
+            positions: list[tuple[float, float]] = [(p.x_norm, p.r_norm)]
+            captured_at: Optional[int] = None
+
+            for sub_idx in range(n_substeps):
+                if p.status in ("captured", "passed"):
+                    break
+
+                # Force superposition — Stokes regime (see module docstring)
+                v_ax, v_rad = _fluid_velocity(
+                    p.x_norm, p.r_norm, Q_eff, R_in, R_tip, L
+                )
+                v_dep_r  = _dep_radial_velocity(
+                    p.x_norm, p.r_norm, p.d_p_m, p.species, field_fn
+                )
+                # Gravity projected into radial direction (see COORDINATE NOTE)
+                v_grav_r = _gravity_radial_velocity(p.d_p_m, p.species)
+
+                # Euler integration
+                p.x_norm += v_ax  * dt_sub
+                p.r_norm += (v_rad + v_dep_r + v_grav_r) * dt_sub
+                p.r_norm  = float(np.clip(p.r_norm, 0.0, 1.0))  # enforce cone boundary
+
+                positions.append((p.x_norm, p.r_norm))
+
+                if backflush:
+                    if p.x_norm <= 0.0:
+                        p.status = "passed"   # flushed out inlet end
+                        break
+                else:
+                    # Apex trap (nDEP primary mechanism)
+                    if _is_apex_captured(p):
+                        p.status = "captured"
+                        captured_at = sub_idx + 1
+                        break
+                    # RT mesh filtration (size-gated)
+                    if _is_rt_captured(p, mesh_opening_um):
+                        p.status = "captured"
+                        captured_at = sub_idx + 1
+                        break
+                    # Near-wall transient state
+                    p.status = "near_wall" if p.r_norm >= (1.0 - EPSILON_WALL) else "in_transit"
+                    # Stage exit
+                    if p.x_norm >= 1.0:
+                        p.status = "passed"
+                        break
+
+            # Guarantee terminal final_status (ran out of substeps → treat as passed)
+            if p.status in ("in_transit", "near_wall"):
+                p.status = "passed"
+
+            trajectories.append(ParticleTrajectory(
+                particle_id=p.particle_id,
+                species=p.species,
+                d_p_m=p.d_p_m,
+                stage_idx=stage_idx,
+                positions=positions,
+                final_status=p.status,
+                captured_at_substep=captured_at,
+            ))
+
+        return trajectories
