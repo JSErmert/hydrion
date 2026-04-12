@@ -48,9 +48,13 @@ function coneToSVG(
   stageIdx: number,
 ): { x: number; y: number } {
   const stg = _STAGE_GEOM[stageIdx];
+  // The cone wall narrows linearly from apexY at x=xStart to CY at x=apexX.
+  // r_norm is the fraction of the LOCAL wall height from the centreline.
+  // Without the (1−xNorm) taper factor, particles at x_norm>0.5 are placed
+  // outside the visible cone boundary and render off-screen.
   return {
     x: stg.xStart + xNorm * (stg.apexX - stg.xStart),
-    y: _CY + rNorm * (stg.apexY - _CY),
+    y: _CY + rNorm * (stg.apexY - _CY) * (1 - xNorm),
   };
 }
 
