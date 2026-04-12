@@ -20,12 +20,15 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ScenarioExecutionHistory, ScenarioEventMarker } from '../api/types';
 import { type HydrosDisplayState, mapStepRecordToDisplayState } from './displayStateMapper';
 
-const TICK_MS = 50;
+// Base tick interval at 1x speed = one step per dt seconds of real time
+// For speed >= 1x: keep fast 50ms tick, advance multiple steps per tick
+// For speed < 1x: stretch the tick interval so 1 step fires slower than real-time
+const FAST_TICK_MS = 50;
 
 export function useScenarioPlayback(history: ScenarioExecutionHistory | null) {
   const [stepIndex, setStepIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [speedMultiplier, setSpeedMultiplier] = useState(10);
+  const [speedMultiplier, setSpeedMultiplier] = useState(1);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const totalSteps = history?.steps.length ?? 0;
@@ -43,7 +46,20 @@ export function useScenarioPlayback(history: ScenarioExecutionHistory | null) {
     clearTimer();
     if (!isPlaying || totalSteps === 0) return;
 
-    const stepsPerTick = Math.max(1, Math.round((speedMultiplier * TICK_MS) / (dt * 1000)));
+    // One step represents dt simulation-seconds. At 1x speed, 1 step fires every
+    // dt*1000ms of real time. Compute tick interval and steps-per-tick accordingly.
+    const baseIntervalMs = Math.round(dt * 1000); // e.g. 100ms at dt=0.1s
+
+    let tickMs: number;
+    let stepsPerTick: number;
+    if (speedMultiplier >= 1) {
+      tickMs = FAST_TICK_MS;
+      stepsPerTick = Math.max(1, Math.round(speedMultiplier * baseIntervalMs / tickMs));
+    } else {
+      // Sub-1x: slow down by stretching the tick interval
+      tickMs = Math.round(baseIntervalMs / speedMultiplier);
+      stepsPerTick = 1;
+    }
 
     intervalRef.current = setInterval(() => {
       setStepIndex(prev => {
@@ -54,7 +70,7 @@ export function useScenarioPlayback(history: ScenarioExecutionHistory | null) {
         }
         return next;
       });
-    }, TICK_MS);
+    }, tickMs);
 
     return clearTimer;
   }, [isPlaying, totalSteps, dt, speedMultiplier, clearTimer]);

@@ -90,17 +90,17 @@ const SPECIES_HUE: Record<string, string> = {
 };
 
 const STATUS_RADIUS: Record<string, number> = {
-  captured:   6.0,
-  near_wall:  4.5,
-  in_transit: 3.5,
-  passed:     3.0,
+  captured:   7.0,
+  near_wall:  6.0,
+  in_transit: 6.0,   // large — actively animating particle
+  passed:     4.0,
 };
 
 const STATUS_OPACITY: Record<string, number> = {
-  captured:   0.95,
-  near_wall:  0.80,
-  in_transit: 0.65,
-  passed:     0.40,
+  captured:   1.00,
+  near_wall:  0.90,
+  in_transit: 0.90,  // bright — must be visible on dark background
+  passed:     0.55,
 };
 
 interface ParticleStreamRendererProps {
@@ -116,13 +116,13 @@ function ParticleStreamRenderer({ points }: ParticleStreamRendererProps) {
           {/* Trajectory trail — faint dots from inlet toward capture/exit point */}
           {p.trail?.map((tp, ti) => {
             const trailLen = p.trail!.length;
-            const opacity  = 0.15 + (ti / trailLen) * 0.30;  // dims toward inlet
+            const opacity  = 0.20 + (ti / Math.max(trailLen - 1, 1)) * 0.45;
             return (
               <circle
                 key={ti}
                 cx={tp.x}
                 cy={tp.y}
-                r={2.0}
+                r={3.5}
                 fill={SPECIES_HUE[p.species] ?? '#aaaaaa'}
                 opacity={opacity}
               />

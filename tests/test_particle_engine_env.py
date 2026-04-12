@@ -32,7 +32,7 @@ def test_particle_streams_have_required_fields(env):
             assert "r_norm"  in pt, f"{key} point missing r_norm"
             assert "status"  in pt, f"{key} point missing status"
             assert "species" in pt, f"{key} point missing species"
-            assert pt["status"]  in ("captured", "passed")
+            assert pt["status"]  in ("captured", "passed", "in_transit")
             assert pt["species"] in ("PP", "PE", "PET")
 
 

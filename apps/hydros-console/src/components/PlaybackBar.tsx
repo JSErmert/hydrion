@@ -37,7 +37,7 @@ export interface PlaybackBarProps {
   onSetSpeed: (n: number) => void;
 }
 
-const SPEEDS = [1, 5, 10, 30, 100];
+const SPEEDS = [0.25, 0.5, 1, 5, 10, 30, 100];
 
 // Marker types surfaced as jump buttons (excludes bookend types)
 const NAVIGABLE_MARKER_TYPES = new Set([
@@ -126,11 +126,13 @@ export default function PlaybackBar({
       {/* Row 2 — transport controls (visible only after history is loaded) */}
       {hasHistory && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button style={btn} onClick={() => onJumpToStep(0)} disabled={stepIndex === 0} title="Go to start">⏮</button>
           <button style={btn} onClick={onPrevStep} disabled={stepIndex === 0}>◀</button>
           <button style={btn} onClick={isPlaying ? onPause : onPlay}>
             {isPlaying ? '⏸' : '▶'}
           </button>
           <button style={btn} onClick={onNextStep} disabled={stepIndex >= totalSteps - 1}>▶▶</button>
+          <button style={btn} onClick={() => onJumpToStep(totalSteps - 1)} disabled={stepIndex >= totalSteps - 1} title="Go to end">⏭</button>
           <input
             type="range"
             min={0}

@@ -497,10 +497,17 @@ class ConicalCascadeEnv(gym.Env):
                 for pos in inside[trail_start:display_idx]
             ]
 
+            # Display status: show "in_transit" while the particle is mid-animation
+            # so the frontend uses the larger, brighter in-transit dot style.
+            # Only show final_status ("captured"/"passed") when the particle has
+            # reached its terminal position (phase_frac = 1.0, i.e. last inside frame).
+            display_status = (
+                t.final_status if display_idx == n - 1 else "in_transit"
+            )
             result.append({
                 "x_norm":  display_pos[0],
                 "r_norm":  display_pos[1],
-                "status":  t.final_status,
+                "status":  display_status,
                 "species": t.species,
                 "trail":   trail,
             })
