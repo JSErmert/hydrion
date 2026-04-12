@@ -133,8 +133,9 @@ function buildParticles(
     const r  = 1.5 + rng(i, 2) * 1.8;
     const op = 0.38 + conc * 0.42;
 
-    const captureRng    = (Math.imul(stageIdx * 31 + 7 ^ ((stageIdx * 31 + 7) >>> 16), 0x45d9f3b) ^ Math.imul(i ^ (i >>> 11), 0x3da7f9f5)) >>> 0;
-    const captured      = (captureRng / 0xffffffff) < etaStage;
+    const stageSeed     = Math.imul(stageIdx * 31 + 7, 0x45d9f3b);
+    const captureRng    = (stageSeed ^ Math.imul(i ^ (i >>> 11), 0x3da7f9f5)) >>> 0;
+    const captured      = (captureRng / 0x100000000) < etaStage;
     const buoyantEscape = !captured && buoyancyActive && i % 2 === 0;
 
     let dx: number, dy: number;
