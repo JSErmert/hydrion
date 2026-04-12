@@ -6,11 +6,14 @@ from typing import Dict, Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import json
 import yaml
 
 from hydrion.env import HydrionEnv
+from hydrion.environments.conical_cascade_env import ConicalCascadeEnv
 from hydrion.wrappers.shielded_env import ShieldedEnv
 from hydrion.logging import artifacts
 from hydrion.scenarios import ScenarioRunner, load_scenario
@@ -32,10 +35,13 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve built React frontend — must be mounted AFTER all /api routes
+_DIST = Path(__file__).parent.parent.parent / "apps" / "hydros-console" / "dist"
 
 
 @app.post("/api/run")
@@ -187,7 +193,7 @@ def run_scenario(req: ScenarioRunRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"scenario not found: {req.scenario_id}")
 
     scenario = load_scenario(yaml_path)
-    env = HydrionEnv(config_path="configs/default.yaml", auto_reset=False)
+    env = ConicalCascadeEnv(config_path="configs/default.yaml")
     runner = ScenarioRunner(env)
     history = runner.run(scenario)
     return history.to_dict()
@@ -198,3 +204,17 @@ def run_scenario(req: ScenarioRunRequest) -> Dict[str, Any]:
 def json_load(p: Path) -> Any:
     with p.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# Serve static assets (JS/CSS/etc.) and SPA index fallback
+if _DIST.exists():
+    app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str = ""):
+        """Return index.html for all non-API routes (React SPA routing)."""
+        index = _DIST / "index.html"
+        if index.exists():
+            return FileResponse(str(index))
+        raise HTTPException(status_code=404, detail="Frontend not built")

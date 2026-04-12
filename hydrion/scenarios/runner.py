@@ -288,6 +288,11 @@ class ScenarioRunner:
             sensor = {k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
                       for k, v in env.sensor_state.items()}
 
+            # Extract particle_streams before building truthState.
+            # particle_streams is a non-numeric nested dict — kept separate to
+            # preserve truthState as Record<string, number> in TypeScript.
+            particle_streams = truth.pop("particle_streams", None)
+
             history.steps.append(ScenarioStepRecord(
                 t=round(t, 6),
                 stepIndex=step_idx,
@@ -303,6 +308,7 @@ class ScenarioRunner:
                 reward=float(reward),
                 done=bool(terminated or truncated),
                 info=info,
+                particle_streams=particle_streams,
             ))
 
             # ---- Detect markers ----
