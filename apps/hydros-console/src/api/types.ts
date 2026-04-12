@@ -172,6 +172,14 @@ export interface ScenarioInputsRecord {
   activeDisturbances: Array<{ type: string; intensity: number }>;
 }
 
+/** Raw particle position from Python engine — cone-local coordinates */
+export interface ParticlePointRaw {
+  x_norm: number;
+  r_norm: number;
+  status: string;   // "captured" | "passed"
+  species: string;  // "PP" | "PE" | "PET"
+}
+
 /** One runtime step from a scenario execution. */
 export interface ScenarioStepRecord {
   t: number;
@@ -184,6 +192,12 @@ export interface ScenarioStepRecord {
   reward: number;
   done: boolean;
   info: Record<string, unknown>;
+  /** Per-stage particle positions from ParticleDynamicsEngine — cone-local coords */
+  particleStreams?: {
+    s1: ParticlePointRaw[];
+    s2: ParticlePointRaw[];
+    s3: ParticlePointRaw[];
+  };
 }
 
 export interface ScenarioEventMarker {

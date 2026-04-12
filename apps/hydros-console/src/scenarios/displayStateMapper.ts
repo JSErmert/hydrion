@@ -14,6 +14,57 @@
 
 import type { ScenarioStepRecord } from '../api/types';
 
+// ---------------------------------------------------------------------------
+// Particle stream types
+// ---------------------------------------------------------------------------
+
+export interface ParticlePoint {
+  x: number;        // SVG coordinate (converted from x_norm)
+  y: number;        // SVG coordinate (converted from r_norm)
+  status: string;   // "captured" | "passed"
+  species: string;  // "PP" | "PE" | "PET"
+}
+
+export interface ParticleStreams {
+  s1: ParticlePoint[];
+  s2: ParticlePoint[];
+  s3: ParticlePoint[];
+}
+
+// Stage geometry for (x_norm, r_norm) → SVG coordinate conversion.
+// These constants must match ConicalCascadeView.tsx STAGES exactly.
+// If the geometry changes, update both files.
+const _CY = 154;  // device centreline y (matches ConicalCascadeView CY)
+const _STAGE_GEOM = [
+  { xStart: 118, apexX: 296, apexY: 243 },  // S1
+  { xStart: 306, apexX: 484, apexY: 243 },  // S2
+  { xStart: 494, apexX: 672, apexY: 243 },  // S3
+] as const;
+
+function coneToSVG(
+  xNorm: number,
+  rNorm: number,
+  stageIdx: number,
+): { x: number; y: number } {
+  const stg = _STAGE_GEOM[stageIdx];
+  return {
+    x: stg.xStart + xNorm * (stg.apexX - stg.xStart),
+    y: _CY + rNorm * (stg.apexY - _CY),
+  };
+}
+
+function mapParticleStream(
+  raw: Array<{ x_norm: number; r_norm: number; status: string; species: string }> | undefined,
+  stageIdx: number,
+): ParticlePoint[] {
+  if (!raw || raw.length === 0) return [];
+  return raw.map(p => ({
+    ...coneToSVG(p.x_norm, p.r_norm, stageIdx),
+    status:  p.status,
+    species: p.species,
+  }));
+}
+
 export type SystemStatus =
   | 'BACKFLUSH ACTIVE'
   | 'BYPASS ACTIVE'
@@ -81,6 +132,9 @@ export interface HydrosDisplayState {
   t: number;
   stepIndex: number;
   reward: number;
+
+  // Per-stage particle positions from ParticleDynamicsEngine
+  particleStreams?: ParticleStreams | null;
 }
 
 function clamp01(x: number | undefined): number {
@@ -220,5 +274,13 @@ export function mapStepRecordToDisplayState(step: ScenarioStepRecord): HydrosDis
     t: step.t,
     stepIndex: step.stepIndex,
     reward: step.reward,
+
+    particleStreams: step.particleStreams
+      ? {
+          s1: mapParticleStream(step.particleStreams.s1, 0),
+          s2: mapParticleStream(step.particleStreams.s2, 1),
+          s3: mapParticleStream(step.particleStreams.s3, 2),
+        }
+      : null,
   };
 }
