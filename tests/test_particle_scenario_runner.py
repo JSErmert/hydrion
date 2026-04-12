@@ -38,3 +38,4 @@ def test_scenario_step_dict_has_particleStreams():
     d = history.to_dict()
     step_dict = d["steps"][1]   # step 0 may have None (before first integration)
     assert "particleStreams" in step_dict
+    assert step_dict["particleStreams"] is not None, "particleStreams must be non-None after first step"

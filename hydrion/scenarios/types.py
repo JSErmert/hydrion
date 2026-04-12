@@ -102,7 +102,7 @@ class ScenarioStepRecord:
     reward: float
     done: bool
     info: Dict[str, Any]
-    particle_streams: Optional[Dict[str, list]] = None   # from ParticleDynamicsEngine
+    particle_streams: Optional[Dict[str, List[Dict[str, Any]]]] = None   # from ParticleDynamicsEngine
 
     def to_dict(self) -> Dict[str, Any]:
         return {

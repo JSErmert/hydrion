@@ -193,6 +193,8 @@ def run_scenario(req: ScenarioRunRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"scenario not found: {req.scenario_id}")
 
     scenario = load_scenario(yaml_path)
+    # ConicalCascadeEnv used directly (no ShieldedEnv) — intentional for scenario visualization.
+    # Scenario runner is not a policy training path; safety rail not required here.
     env = ConicalCascadeEnv(config_path="configs/default.yaml")
     runner = ScenarioRunner(env)
     history = runner.run(scenario)
