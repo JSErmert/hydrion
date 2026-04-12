@@ -12,7 +12,7 @@
  *   - Derived labels computed from governed precedence chains
  */
 
-import type { ScenarioStepRecord } from '../api/types';
+import type { ScenarioStepRecord, ParticlePointRaw } from '../api/types';
 
 // ---------------------------------------------------------------------------
 // Particle stream types
@@ -54,7 +54,7 @@ function coneToSVG(
 }
 
 function mapParticleStream(
-  raw: Array<{ x_norm: number; r_norm: number; status: string; species: string }> | undefined,
+  raw: ParticlePointRaw[] | undefined,
   stageIdx: number,
 ): ParticlePoint[] {
   if (!raw || raw.length === 0) return [];
