@@ -163,8 +163,8 @@ class HydrionEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # Observation space (12-D, schema obs12_v1 — immutable)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(12,), dtype=np.float32)
+        # Observation space (14-D, schema obs14_v1 — M6.2B — 2026-04-13)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(14,), dtype=np.float32)
 
         self.steps = 0
         if auto_reset:

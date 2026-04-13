@@ -3,12 +3,12 @@ from hydrion.env import HydrionEnv
 
 
 def test_observation_12d_regression():
-    """PSD disabled (default): observation remains 12D, keys unchanged."""
+    """obs14_v1 (M6.2B): observation is now 14D; keys 0–11 unchanged."""
     env = HydrionEnv(config_path="configs/default.yaml")
     obs, _ = env.reset()
-    assert obs.shape == (12,), f"Expected 12D obs, got {obs.shape}"
+    assert obs.shape == (14,), f"Expected 14D obs (obs14_v1), got {obs.shape}"
     obs2, _, _, _, _ = env.step(env.action_space.sample())
-    assert obs2.shape == (12,)
+    assert obs2.shape == (14,)
     # Core truth_state keys
     assert "C_in" in env.truth_state
     assert "C_out" in env.truth_state

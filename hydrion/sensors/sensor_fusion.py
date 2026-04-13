@@ -5,32 +5,43 @@ import numpy as np
 
 def build_observation(truth: dict, sensors: dict) -> np.ndarray:
     """
-    obs12_v2 — stable observation contract.
+    obs14_v1 — sensor-extended observation contract.
 
-    Builds the 12D observation vector strictly from:
-    - normalized truth_state values
-    - measured sensor_state values
+    Builds the 14D observation vector from:
+    - normalized truth_state values (indices 0–9, unchanged from obs12_v2)
+    - measured sensor_state values (indices 10–13)
 
-    Schema version: obs12_v2 (M3 — 2026-04-10)
-    Change from v1: index 3 is now E_field_norm (physical kV/m normalised to [0,1])
-                    replacing E_norm (dimensionless arbitrary reference in [0,2]).
+    Schema version: obs14_v1 (M6.2B — 2026-04-13)
+    Change from obs12_v2: indices 0–11 UNCHANGED. Two new sensor-derived indices appended:
+        index 12: flow_sensor_norm  = sensors["flow_sensor_lmin"] / 20.0  (clip [0,1])
+        index 13: dp_sensor_norm    = sensors["dp_sensor_kPa"]   / 80.0   (clip [0,1])
+
+    SEMANTIC WARNING — indices 12 and 13 are NOT substitutes for indices 0 and 1:
+        Index 0  (flow)     = truth["flow"]                = Q_out_Lmin / 20.0 (post-backflush-diversion)
+        Index 12 (sensor)   = sensors["flow_sensor_lmin"] / 20.0               (q_processed, noisy, pre-diversion)
+        Index 1  (pressure) = truth["pressure"]            = P_in / 80000       (inlet absolute, encodes bypass signal)
+        Index 13 (sensor)   = sensors["dp_sensor_kPa"]    / 80.0               (dp_total, noisy, pure filter differential)
+    Shared normalization denominator does NOT imply shared physical quantity.
 
     Index mapping:
-        0   flow
-        1   pressure
-        2   clog
-        3   E_field_norm        <- obs12_v2 (was E_norm in obs12_v1)
-        4   C_out
-        5   particle_capture_eff
-        6   valve_cmd
-        7   pump_cmd
-        8   bf_cmd
-        9   node_voltage_cmd
-        10  sensor_turbidity
-        11  sensor_scatter
+        0   flow                  truth_state     Q_out_Lmin / 20.0
+        1   pressure              truth_state     P_in / 80000
+        2   clog                  truth_state     mesh_loading_avg
+        3   E_field_norm          truth_state     radial E-field (obs12_v2: replaces E_norm)
+        4   C_out                 truth_state     outlet particle concentration
+        5   particle_capture_eff  truth_state     capture efficiency
+        6   valve_cmd             truth_state     valve actuator command
+        7   pump_cmd              truth_state     pump actuator command
+        8   bf_cmd                truth_state     backflush command
+        9   node_voltage_cmd      truth_state     node voltage command
+        10  sensor_turbidity      sensor_state    optical turbidity (noisy)
+        11  sensor_scatter        sensor_state    optical scatter (noisy)
+        12  flow_sensor_norm      sensor_state    flow_sensor_lmin / 20.0, clip [0,1]  <- obs14_v1
+        13  dp_sensor_norm        sensor_state    dp_sensor_kPa / 80.0,    clip [0,1]  <- obs14_v1
 
-    This function is the *single source of truth* for the RL observation.
+    This function is the *single source of truth* for the HydrionEnv RL observation.
     DO NOT change index ordering without bumping the schema version label.
+    CCE uses a separate 12D truth-derived schema — obs14_v1 does not apply to CCE.
     """
     return np.array(
         [
@@ -55,6 +66,10 @@ def build_observation(truth: dict, sensors: dict) -> np.ndarray:
             # optical sensors (measured)
             float(sensors.get("sensor_turbidity", 0.0)),
             float(sensors.get("sensor_scatter", 0.0)),
+
+            # hydraulic sensors — obs14_v1 extension (M6.2B — 2026-04-13)
+            float(np.clip(sensors.get("flow_sensor_lmin", 0.0) / 20.0, 0.0, 1.0)),
+            float(np.clip(sensors.get("dp_sensor_kPa",   0.0) / 80.0, 0.0, 1.0)),
         ],
         dtype=np.float32,
     )
