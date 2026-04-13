@@ -99,3 +99,21 @@ def test_deterministic_reset_when_randomize_false():
         env.reset(seed=i)
         assert env._state.get("fouling_frac_s1", -1.0) == 0.0, \
             "fouling_frac_s1 must be 0.0 on deterministic reset"
+
+
+def test_training_script_smoke_1000_steps():
+    """Training stack (CCE + ShieldedEnv + VecNormalize + PPO) must run 1000 steps without error."""
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.monitor import Monitor
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+    from hydrion.wrappers.shielded_env import ShieldedEnv
+    from hydrion.safety.shield import SafetyConfig
+    from hydrion.train_ppo_cce import _CCE_SAFETY_CFG, make_env
+
+    vec_env = DummyVecEnv([make_env(seed=7)])
+    vec_env = VecNormalize(vec_env, norm_obs=True, norm_reward=True, clip_obs=10.0)
+
+    model = PPO("MlpPolicy", vec_env, n_steps=256, batch_size=64, seed=7, verbose=0)
+    model.learn(total_timesteps=1000)
+    vec_env.close()
+    # Reaching here means the full training stack is functional
