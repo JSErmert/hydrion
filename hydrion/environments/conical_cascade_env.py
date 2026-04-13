@@ -183,6 +183,7 @@ class ConicalCascadeEnv(gym.Env):
         render_mode=None,
         particles: list[InputParticle] | None = None,
         log_trajectories: bool = False,
+        randomize_on_reset: bool = False,
     ):
         super().__init__()
         self.render_mode = render_mode
@@ -233,6 +234,8 @@ class ConicalCascadeEnv(gym.Env):
         self._particle_set     = particles if particles is not None else list(_DEFAULT_PARTICLES)
         self._log_trajectories = log_trajectories
 
+        self._randomize_on_reset = randomize_on_reset
+
         if seed is not None:
             self.np_random, _ = gym.utils.seeding.np_random(seed)
 
@@ -256,6 +259,20 @@ class ConicalCascadeEnv(gym.Env):
         self.hydraulics.reset()
         self._state.update(self.hydraulics.state)
         self.clogging.reset(self._state)
+
+        # Optional: randomize initial fouling so the policy generalizes beyond clean-start.
+        # Injects uniform [0, 0.30] fouling distributed across cake/bridge/pore components
+        # using Stage 1 weight ratios (0.20/0.60/0.20). Writes into CloggingModel's
+        # internal state and syncs to _state so all downstream reads are consistent.
+        if self._randomize_on_reset:
+            init_f = float(self.np_random.uniform(0.0, 0.30))
+            for s_key in ("s1", "s2", "s3"):
+                self.clogging._state[f"cake_{s_key}"]         = init_f * 0.20
+                self.clogging._state[f"bridge_{s_key}"]       = init_f * 0.60
+                self.clogging._state[f"pore_{s_key}"]         = init_f * 0.20
+                self.clogging._state[f"fouling_frac_{s_key}"] = init_f
+                self.clogging._state[f"recoverable_{s_key}"]  = init_f
+            self._state.update(self.clogging._state)
 
         self._state["C_in"]  = 0.7
         self._state["C_out"] = 0.7

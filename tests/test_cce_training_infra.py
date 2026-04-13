@@ -69,3 +69,33 @@ def test_reward_increases_with_flow():
         f"High-flow reward ({r_high:.4f}) must exceed low-flow reward ({r_low:.4f}) "
         "for equal capture efficiency"
     )
+
+
+def test_randomized_reset_produces_varied_initial_fouling():
+    """Over 20 resets with randomize=True, initial fouling must vary."""
+    env = ConicalCascadeEnv(
+        config_path="configs/default.yaml",
+        seed=42,
+        randomize_on_reset=True,
+    )
+    fouling_values = []
+    for i in range(20):
+        env.reset(seed=i)
+        fouling_values.append(env._state.get("fouling_frac_s1", 0.0))
+
+    std = float(np.std(fouling_values))
+    assert std > 0.01, (
+        f"Fouling std across 20 resets must be > 0.01 (got {std:.4f}). "
+        "Check randomize_on_reset logic."
+    )
+    for v in fouling_values:
+        assert 0.0 <= v <= 0.30, f"Initial fouling {v:.4f} outside [0, 0.30]"
+
+
+def test_deterministic_reset_when_randomize_false():
+    """With randomize_on_reset=False (default), reset must always start at zero fouling."""
+    env = ConicalCascadeEnv(config_path="configs/default.yaml", seed=0)
+    for i in range(5):
+        env.reset(seed=i)
+        assert env._state.get("fouling_frac_s1", -1.0) == 0.0, \
+            "fouling_frac_s1 must be 0.0 on deterministic reset"
