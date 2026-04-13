@@ -143,3 +143,4 @@ def test_api_run_ppo_cce_falls_back_to_random_if_no_model(tmp_path, monkeypatch)
     })
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
     assert "run_id" in resp.json()
+    assert app_module._ppo_cce_model is None, "model singleton must remain unset when files are absent"

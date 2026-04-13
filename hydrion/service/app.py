@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import json
 import yaml
+import numpy as _np
 
 from hydrion.env import HydrionEnv
 from hydrion.environments.conical_cascade_env import ConicalCascadeEnv
@@ -61,8 +62,10 @@ def _load_ppo_cce() -> bool:
         vec = VecNormalize.load(_PPO_CCE_VECNORM_PATH, vec)
         vec.training    = False
         vec.norm_reward = False
+        model = PPO.load(_PPO_CCE_MODEL_PATH, env=vec)
+        # Only assign globals after both succeed (atomic)
         _ppo_cce_vec_norm = vec
-        _ppo_cce_model    = PPO.load(_PPO_CCE_MODEL_PATH, env=vec)
+        _ppo_cce_model    = model
         return True
     except Exception as exc:
         print(f"[warn] PPO-CCE model load failed: {exc}")
@@ -121,22 +124,37 @@ def start_run(req: RunRequest) -> Dict[str, Any]:
     }
     artifacts.write_manifest(run_dir, manifest)
 
-    # Determine policy
-    _use_ppo_cce = req.policy_type == "ppo_cce" and _load_ppo_cce()
+    # Determine policy and choose environment for run loop
+    if req.policy_type == "ppo_cce" and _load_ppo_cce():
+        _use_ppo_cce = True
+        from hydrion.environments.conical_cascade_env import ConicalCascadeEnv
+        from hydrion.safety.shield import SafetyConfig, ShieldedEnv as _ShieldedEnv
+        _safety_cfg = SafetyConfig(
+            max_pressure_soft=0.75, max_pressure_hard=1.00,
+            max_clog_soft=0.70,     max_clog_hard=0.95,
+            terminate_on_hard_violation=True,
+        )
+        run_env = _ShieldedEnv(
+            ConicalCascadeEnv(config_path=f"configs/{req.config_name}"),
+            cfg=_safety_cfg,
+        )
+        run_env._env._max_steps = req.max_steps
+    else:
+        _use_ppo_cce = False
+        run_env = env  # existing HydrionEnv
 
     # run loop
-    obs, info = env.reset(seed=req.seed)
+    obs, info = run_env.reset(seed=req.seed)
     for step_idx in range(req.max_steps):
         if _use_ppo_cce:
-            import numpy as _np
             obs_vec  = _np.array([obs])
             obs_norm = _ppo_cce_vec_norm.normalize_obs(obs_vec)
             action, _ = _ppo_cce_model.predict(obs_norm, deterministic=True)
             action = action[0]
         else:
-            action = env.action_space.sample()
+            action = run_env.action_space.sample()
 
-        obs, reward, terminated, truncated, info = env.step(action)
+        obs, reward, terminated, truncated, info = run_env.step(action)
 
         step_payload: Dict[str, Any] = {
             "step_idx": step_idx,
