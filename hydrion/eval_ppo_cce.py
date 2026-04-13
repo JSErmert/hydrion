@@ -3,24 +3,52 @@ Hydrion — PPO Evaluation Script for ConicalCascadeEnv
 ------------------------------------------------------
 Evaluates a trained PPO policy vs heuristic and random baselines on CCE.
 
-Constraint 5: PPO must beat both random AND heuristic baselines to be
-considered non-trivial. Heuristic: full voltage, nominal flow, BF at fouling > 0.6.
+Convergence criteria (Constraint 5, revised 2026-04-12 after physics audit):
+    PPO must beat BOTH baselines on capture to be considered non-trivial.
+    Updated thresholds account for the RT floor (eta ~ 0.51 even at zero voltage):
+
+        PPO vs Random eta ratio:    > 1.5x  (was 3.0x — floor was 0.57, 3x impossible)
+        PPO vs Heuristic eta ratio: > 1.2x  (heuristic doesn't know about DEP threshold)
+
+    Why these thresholds:
+        RT single-screen floor: eta ~ 0.51-0.59 regardless of voltage.
+        Max possible eta: 1.00.  Max ratio from floor: 1.0 / 0.57 = 1.75x.
+        1.5x is ~85% of achievable headroom — meaningful differentiation.
+        1.2x PPO/heuristic: heuristic uses pump=0.7 (Q=14 L/min, above DEP threshold).
+        PPO must discover: pump <= 0.20 (Q <= 7.7 L/min) + volt=1.0 to activate DEP.
 
 Usage (from repo root):
     python -m hydrion.eval_ppo_cce
-    python -m hydrion.eval_ppo_cce --model models/ppo_cce_v1.zip --episodes 5
+    python -m hydrion.eval_ppo_cce --model models/ppo_cce_v2.zip --episodes 5
 
-    # Non-trivial capture evaluation (voltage-sensitive regime):
+    # Canonical capture-sensitive benchmark (retrained model required):
     python -m hydrion.eval_ppo_cce --regime submicron
-    python -m hydrion.eval_ppo_cce --regime submicron --episodes 10
+    python -m hydrion.eval_ppo_cce --regime submicron --model models/ppo_cce_v2.zip
 
-    Regime 'default':   d_p = 10 um.  All particles > S3 5 um opening.
-                        Mechanical filtration saturates eta ~= 1.0.
-                        Comparison is energy/hydraulic only.
-    Regime 'submicron': d_p = 1 um.   Below S3 d_c (1.5 um).  N_R = 0.67.
-                        nDEP apex-trap is the primary capture mechanism.
-                        v_crit ~ r^2 -- voltage management matters.
-                        Use this to test whether PPO exploits voltage for capture.
+    Regime 'default':   d_p = 10 um.  N_R = 6.67 at S3.  RT-saturated.
+                        eta = 1.0 for all policies.  Comparison is energy/hydraulic only.
+                        (ppo_cce_v1 trained in this regime — capture comparison invalid.)
+
+    Regime 'submicron': d_p = 1 um.   N_R = 0.67 at S3 (below collector diameter).
+                        CANONICAL benchmark for capture-sensitive evaluation.
+
+                        Physics (validated 2026-04-12):
+                          v_crit(V=500V) = 789 mm/s at S3 tip_radius=3um.
+                          DEP threshold: Q <= 7.7 L/min (pump_cmd <= 0.22).
+                          At pump=0.70 (heuristic): Q=14 L/min >> threshold -> DEP off.
+                          At pump=0.10: Q=3.9 L/min < threshold -> eta=0.997.
+                          At pump=0.20: Q=7.1 L/min ~ threshold -> eta=0.845.
+
+                        Policy separability:
+                          Heuristic (pump=0.7, V=1.0):   eta ~ 0.509 (above threshold)
+                          Random    (pump~0.5, V~0.5):   eta ~ 0.517 (above threshold)
+                          PPO target (pump<=0.20, V=1.0): eta ~ 0.845-0.997
+                          PPO/heuristic on capture: up to 1.65-1.96x (BEATS heuristic)
+
+                        Key RL insight: PPO must discover the DEP threshold is at Q~7.7
+                        L/min and reduce pump to stay below it. This is not obvious from
+                        the observation space and is genuinely non-trivial to learn.
+                        Retraining at d_p_um=1.0 required (ppo_cce_v1 is d_p_um=10.0).
 """
 
 from __future__ import annotations
@@ -50,21 +78,29 @@ _MAX_STEPS_EVAL = 400
 # ---------------------------------------------------------------------------
 # Particle size regimes for evaluation
 #
-# default   -- 10 um (canonical training regime)
-#             N_R = d_p / d_c = 10 / 1.5 = 6.67 at S3 -- interception term
-#             dominates -- eta_cascade ~= 1.0 regardless of voltage.
-#             All three policies score identical capture; comparison is energy/
-#             hydraulic only.
+# default   -- 10 um (legacy training regime -- NOT capture-sensitive)
+#             N_R = d_p / d_c = 10 / 1.5 = 6.67 at S3.
+#             eta_R term in RT formula: N_R^(15/8) = 29.6.
+#             Even with single-screen bed_depth_m = d_c, exponent = -4*alpha*eta_0/pi.
+#             At eta_0 = 80+, exponent = -41 -> eta_bed = 1.000 always.
+#             All three policies score identical capture. ppo_cce_v1 was trained here.
 #
-# submicron -- 1 um (nDEP-sensitive regime)
-#             N_R = 1 / 1.5 = 0.67 at S3 -- interception NOT dominant.
-#             Brownian diffusion + nDEP apex-trap compete with flow sweep.
-#             v_crit ~ r^2 = (0.5 um)^2 vs (5 um)^2 -- 100x smaller than 10 um case.
-#             At operational flow speeds, U_face >> v_crit unless voltage is high.
-#             Policies that maintain high voltage capture more; those that
-#             sacrifice voltage for energy savings show measurable capture loss.
-#             This is the minimum regime where RL can outperform heuristic on
-#             capture rather than energy alone.
+# submicron -- 1 um (CANONICAL benchmark -- capture-sensitive, DEP-sensitive)
+#             N_R = 1 / 1.5 = 0.67.  eta_0 ~ 1.9 -> eta_bed(single-screen) ~ 0.63.
+#             S3 face velocity: U_face = Q / S3_area_mean (area_mean ~ 1.63e-4 m2).
+#             v_crit(V=500V, tip=3um, r=0.5um) = 789 mm/s.
+#             DEP active when U_face < 789 mm/s -> Q < 7.7 L/min -> pump_cmd < 0.22.
+#
+#             Eta landscape (actual env, validated 2026-04-12):
+#               pump=0.10, V=1.0 -> Q=3.9  L/min, eta=0.997  (DEP active, ratio=1.97x)
+#               pump=0.15, V=1.0 -> Q=5.6  L/min, eta=0.970  (DEP active, ratio=1.37x)
+#               pump=0.20, V=1.0 -> Q=7.1  L/min, eta=0.845  (DEP marginal, ratio=1.08x)
+#               pump=0.25, V=1.0 -> Q=8.4  L/min, eta=0.661  (DEP inactive, threshold passed)
+#               pump=0.70, V=1.0 -> Q=14.2 L/min, eta=0.509  (heuristic operating point)
+#               any pump,  V=0.0 -> eta~0.51-0.59              (RT floor, no DEP)
+#
+#             The heuristic (pump=0.7, V=1.0) operates above the DEP threshold.
+#             PPO can beat heuristic by 1.65x on capture if it discovers the threshold.
 # ---------------------------------------------------------------------------
 _REGIME_DEFAULT   = "default"
 _REGIME_SUBMICRON = "submicron"
@@ -182,21 +218,23 @@ def _run_episodes(
 
 
 def evaluate(
-    model_path: str = "models/ppo_cce_v1.zip",
-    vecnorm_path: str = "models/ppo_cce_v1_vecnorm.pkl",
+    model_path: str = "models/ppo_cce_v2.zip",
+    vecnorm_path: str = "models/ppo_cce_v2_vecnorm.pkl",
     n_episodes: int = 5,
-    regime: str = _REGIME_DEFAULT,
+    regime: str = _REGIME_SUBMICRON,  # submicron is the canonical benchmark
 ) -> None:
 
     d_p_um = _D_P_UM_BY_REGIME.get(regime, 10.0)
     print(f"\nParticle regime : {regime}  (d_p = {d_p_um:.1f} um)")
     if regime == _REGIME_SUBMICRON:
         print(
-            "  N_R at S3 = {:.2f}  (< 1 -- interception NOT dominant)".format(
+            "  N_R at S3 = {:.2f}  (< 1 -- interception sub-dominant)".format(
                 d_p_um / 1.5  # d_c_um for S3_MEMBRANE
             )
         )
-        print("  Intended: expose nDEP regime. See physics audit below for saturation findings.")
+        print("  DEP threshold: pump_cmd <= 0.22 (Q <= 7.7 L/min) at V=500V")
+        print("  Expected: PPO ~ 0.85-0.997, heuristic ~ 0.509, random ~ 0.52 on eta")
+        print("  (ppo_cce_v1 trained at d_p_um=10 -- retrain ppo_cce_v2 first)")
 
     # ── PPO policy ────────────────────────────────────────────────────────
     if not os.path.exists(model_path) or not os.path.exists(vecnorm_path):
@@ -253,9 +291,13 @@ def evaluate(
         ppo_eta  = ppo_stats["mean_eta"]
         heur_eta = heur_stats["mean_eta"]
         rand_eta = rand_stats["mean_eta"]
-        print(f"\nConvergence criteria (Constraint 5):")
-        print(f"  PPO vs Random eta ratio:    {ppo_eta / max(rand_eta, 1e-6):.2f}x  (need > 3.0x)")
-        print(f"  PPO vs Heuristic eta ratio: {ppo_eta / max(heur_eta, 1e-6):.2f}x  (need >= 1.0x)")
+        print(f"\nConvergence criteria (Constraint 5, revised thresholds):")
+        print(f"  PPO vs Random eta ratio:    {ppo_eta / max(rand_eta, 1e-6):.2f}x  (need > 1.5x)")
+        print(f"  PPO vs Heuristic eta ratio: {ppo_eta / max(heur_eta, 1e-6):.2f}x  (need > 1.2x)")
+        all_eta_clustered = (
+            abs(ppo_eta - heur_eta) < 0.02
+            and abs(ppo_eta - rand_eta) < 0.02
+        )
         all_eta_saturated = (
             abs(ppo_eta - 1.0) < 0.01
             and abs(heur_eta - 1.0) < 0.01
@@ -263,31 +305,23 @@ def evaluate(
         )
         if all_eta_saturated:
             print(
-                "\n  [PHYSICS AUDIT] eta = 1.000 for all policies in both regimes.\n"
+                "\n  [PHYSICS AUDIT] eta = 1.000 for all policies.\n"
                 "\n"
-                "  Root cause -- S3 bed-depth amplification:\n"
-                "    stage_capture_efficiency() uses slant_length_m as bed depth.\n"
-                "    S3: slant=40.8mm, d_c=1.5um --> ratio = 27200x.\n"
-                "    Even eta_0 = 0.0001 gives exponent = -14.2 --> eta_RT = 100%.\n"
-                "    Applies to ALL particle sizes.\n"
+                "  Root cause: particle size >= S3 pore scale.\n"
+                "    For d_p >= d_c (1.5um): N_R >= 1 --> eta_0 grows as N_R^(15/8).\n"
+                "    Even with single-screen bed_depth_m = d_c_m, the exponent\n"
+                "    -4*alpha*eta_0/pi is large -> eta_bed = 1.000 at S3.\n"
                 "\n"
-                "  Why submicron does not help:\n"
-                "    For d_p < d_c (1.5um): N_R < 1, RT not dominant -- but\n"
-                "      v_crit ~ r^2 is tiny; U_face >> v_crit for all sub-um sizes.\n"
-                "      DEP is still negligible.\n"
-                "    For d_p > 19um: v_crit > U_face at max voltage -- DEP effective.\n"
-                "      But N_R = d_p/d_c >> 1 --> interception saturates with any bed depth.\n"
-                "\n"
-                "  Minimum fix to unblock voltage-sensitive capture:\n"
-                "    1. Add bed_depth_m = mesh.d_c_m to ConicalStageSpec for S3\n"
-                "       (single-screen, not deep-bed -- physically correct for membrane).\n"
-                "    2. Use particles d_p ~ 19-25um (already in canonical set).\n"
-                "       With single-screen S3 and d_p=25um: eta_RT~38%, eta_DEP~99% at\n"
-                "       max voltage and Q<5 L/min -- combined eta varies 38-99% with voltage.\n"
-                "    3. Requires retraining (new reward landscape).\n"
-                "\n"
-                "  Current proof result: PPO outperforms by REWARD (+7.2% vs heuristic),\n"
-                "  not capture. Return differentiation is real and policy-driven."
+                "  Fix: use --regime submicron (d_p = 1 um, N_R = 0.67).\n"
+                "    CCE must be retrained with d_p_um=1.0 (ppo_cce_v1 is d_p_um=10.0).\n"
+                "    See ppo_cce_v2 artifacts once Task C retraining is complete."
+            )
+        elif all_eta_clustered:
+            print(
+                "\n  [AUDIT] All policies cluster near eta={:.3f}. Likely operating above\n"
+                "  DEP threshold (pump too high) or model was trained in different regime.\n"
+                "  Expected: PPO ~ 0.85-0.997, heuristic ~ 0.51, random ~ 0.52.\n"
+                "  If using ppo_cce_v1 (trained at d_p_um=10): retrain with d_p_um=1.0.".format(ppo_eta)
             )
     else:
         print(f"\nHeuristic vs Random eta ratio: {heur_stats['mean_eta'] / max(rand_stats['mean_eta'], 1e-6):.2f}x")
@@ -296,12 +330,12 @@ def evaluate(
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate PPO-CCE policy")
-    parser.add_argument("--model",    default="models/ppo_cce_v1.zip")
-    parser.add_argument("--vecnorm",  default="models/ppo_cce_v1_vecnorm.pkl")
+    parser.add_argument("--model",    default="models/ppo_cce_v2.zip")
+    parser.add_argument("--vecnorm",  default="models/ppo_cce_v2_vecnorm.pkl")
     parser.add_argument("--episodes", type=int, default=5)
     parser.add_argument(
         "--regime",
-        default=_REGIME_DEFAULT,
+        default=_REGIME_SUBMICRON,
         choices=[_REGIME_DEFAULT, _REGIME_SUBMICRON],
         help=(
             f"'{_REGIME_DEFAULT}': 10 um particles (canonical training regime, capture saturated). "

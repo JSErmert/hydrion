@@ -8,10 +8,19 @@ Trains PPO on the M5 conical cascade environment with:
     - TensorBoard logging
     - Deterministic seeding (Constraint 6)
 
+Particle regime (2026-04-12 benchmark fix):
+    d_p_um = 1.0 (submicron — canonical capture-sensitive regime).
+    10 um default is RT-saturated: all policies score eta=1.0 regardless of
+    voltage or pump. Retrained model (ppo_cce_v2) uses 1 um particles.
+
+    DEP threshold at 1 um: pump_cmd <= 0.22 (Q <= 7.7 L/min) to activate DEP.
+    Optimal policy: pump ~ 0.10-0.20 + volt = 1.0 -> eta = 0.85-0.997.
+    Heuristic (pump=0.7): Q=14 L/min, above threshold -> eta = 0.509.
+
 Saves:
-    models/ppo_cce_v1.zip          — final policy
-    models/ppo_cce_v1_vecnorm.pkl  — VecNormalize statistics
-    models/ppo_cce_v1_meta.json    — obs schema + reward version metadata
+    models/ppo_cce_v2.zip          — final policy (submicron benchmark regime)
+    models/ppo_cce_v2_vecnorm.pkl  — VecNormalize statistics
+    models/ppo_cce_v2_meta.json    — obs schema + reward version metadata
 
 Checkpoints every 10k steps to checkpoints/cce/
 
@@ -36,6 +45,7 @@ from hydrion.safety.shield import SafetyConfig
 
 
 _TRAIN_SEED  = 42
+_D_P_UM      = 1.0          # submicron benchmark regime (see docstring; 10.0 is saturated)
 _OBS_SCHEMA  = "obs12_v2"   # version-lock — must match ConicalCascadeEnv observation space
 
 _CCE_SAFETY_CFG = SafetyConfig(
@@ -68,6 +78,7 @@ def make_env(seed: int = 0):
             config_path="configs/default.yaml",
             seed=seed,
             randomize_on_reset=True,
+            d_p_um=_D_P_UM,   # 1.0 um — canonical capture-sensitive regime
         )
         # Override max_steps for training episodes.
         # 400 steps = 40 s simulated — long enough for fouling + backflush cycle,
@@ -105,10 +116,12 @@ def main():
     tensorboard_log = f"./runs/{run_name}"
 
     print(f"\nStarting PPO training on ConicalCascadeEnv (M5 physics)...")
+    print(f"Regime:          d_p_um={_D_P_UM} um (submicron -- capture-sensitive)")
+    print(f"DEP threshold:   Q <= 7.7 L/min (pump_cmd <= 0.22) at V=500V")
     print(f"Steps:           {total_timesteps:,}")
     print(f"TensorBoard log: {tensorboard_log}")
     print(f"Checkpoints:     checkpoints/cce/")
-    print(f"Final model:     models/ppo_cce_v1.zip\n")
+    print(f"Final model:     models/ppo_cce_v2.zip\n")
 
     model = PPO(
         policy="MlpPolicy",
@@ -139,24 +152,29 @@ def main():
         progress_bar=True,
     )
 
-    model.save("models/ppo_cce_v1")
-    vec_env.save("models/ppo_cce_v1_vecnorm.pkl")
+    model.save("models/ppo_cce_v2")
+    vec_env.save("models/ppo_cce_v2_vecnorm.pkl")
 
     # Constraint 2: embed obs schema version so the serving path can verify
     # the schema before loading the model.
-    with open("models/ppo_cce_v1_meta.json", "w") as f:
+    with open("models/ppo_cce_v2_meta.json", "w") as f:
         json.dump({
             "obs_schema":      _OBS_SCHEMA,
             "action_schema":   "act4_v1",
             "train_seed":      _TRAIN_SEED,
             "total_timesteps": total_timesteps,
             "reward_version":  "phase1_v1",
+            "d_p_um":          _D_P_UM,
+            "benchmark_regime": "submicron",
+            "dep_threshold_q_lmin": 7.7,
+            "dep_threshold_pump_cmd": 0.22,
+            "note": "ppo_cce_v1 (d_p_um=10.0) is RT-saturated; this v2 is capture-sensitive",
         }, f, indent=2)
 
     print("\nTraining complete.")
-    print("  Model:    models/ppo_cce_v1.zip")
-    print("  VecNorm:  models/ppo_cce_v1_vecnorm.pkl")
-    print("  Meta:     models/ppo_cce_v1_meta.json")
+    print("  Model:    models/ppo_cce_v2.zip")
+    print("  VecNorm:  models/ppo_cce_v2_vecnorm.pkl")
+    print("  Meta:     models/ppo_cce_v2_meta.json")
 
 
 if __name__ == "__main__":
