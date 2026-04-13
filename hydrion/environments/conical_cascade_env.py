@@ -640,7 +640,7 @@ class ConicalCascadeEnv(gym.Env):
 
         Components:
             eta_cascade      — primary capture signal
-            flow_bonus       — processed throughput reward (Stage 3: w_processed_flow=2.0)
+            flow_bonus       — processed throughput reward; weight=0.30 scaled to Q_max=20 L/min
             dp_penalty       — pressure above 80 kPa (CCE design limit)
             volt_penalty     — energy cost
 
@@ -654,7 +654,7 @@ class ConicalCascadeEnv(gym.Env):
         volt = float(self._state.get("voltage_norm", 0.8))
         q    = float(self._state.get("q_processed_lmin", 0.0))
 
-        flow_bonus   = (q / 20.0) * 0.30            # throughput term; Q_max = 20 L/min
+        flow_bonus   = min(q / 20.0, 1.0) * 0.30   # throughput term; Q_max = 20 L/min
         dp_penalty   = max(0.0, dp - 80.0) / 70.0   # penalise above 80 kPa
         volt_penalty = volt * 0.05                   # small energy cost
 
