@@ -37,7 +37,7 @@ export interface PlaybackBarProps {
   onSetSpeed: (n: number) => void;
 }
 
-const SPEEDS = [0.25, 0.5, 1, 5, 10, 30, 100];
+const SPEEDS = [0.25, 0.5, 0.75, 1, 5, 10, 30, 100];
 
 // Marker types surfaced as jump buttons (excludes bookend types)
 const NAVIGABLE_MARKER_TYPES = new Set([

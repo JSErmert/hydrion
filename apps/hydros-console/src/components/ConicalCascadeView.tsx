@@ -6,7 +6,12 @@
 // All geometric constants match machine-core-v4.html exactly.
 // Dynamic layers are driven by HydrosDisplayState prop.
 
-import type { HydrosDisplayState, ParticlePoint } from '../scenarios/displayStateMapper';
+import type {
+  HydrosDisplayState,
+  ParticlePoint,
+  DepositedParticle,
+  StoredParticle,
+} from '../scenarios/displayStateMapper';
 
 const FONT = '"JetBrains Mono", "Fira Code", "Courier New", monospace';
 
@@ -77,11 +82,16 @@ function RadialFieldLines({ xStart, xEnd, eField, mult, color }: FieldLinesProps
   return <>{lines}</>;
 }
 
-// ── Physics-accurate particle renderer — replaces CSS animation ─────────
+// ── Physics-accurate particle renderer ────────────────────────────────────
 //
-// Species → hue: identifies what the particle is (primary research signal)
-// Status  → radius and opacity: indicates what is happening (secondary)
-// No CSS keyframes. No animation state. Positions update at API poll rate.
+// Morphology mapping (physically accurate):
+//   PP  → green  circle  (pellet — round bead, most common PP form)
+//   PE  → blue   circle  (pellet — fragment)
+//   PET → orange fiber   (thin curved line — PET is predominantly fibrous)
+//
+// Size from d_p_um: 10µm=small, 25µm=medium, 50µm=large
+// Status → opacity only (shape/color primary)
+// All positions from backend (x_norm, r_norm). No browser physics.
 
 const SPECIES_HUE: Record<string, string> = {
   PP:  '#7fff7f',   // green  — buoyant, low density
@@ -89,55 +99,180 @@ const SPECIES_HUE: Record<string, string> = {
   PET: '#ff9966',   // orange — sinking, high density
 };
 
-const STATUS_RADIUS: Record<string, number> = {
-  captured:   7.0,
-  near_wall:  6.0,
-  in_transit: 6.0,   // large — actively animating particle
-  passed:     4.0,
-};
-
 const STATUS_OPACITY: Record<string, number> = {
   captured:   1.00,
   near_wall:  0.90,
-  in_transit: 0.90,  // bright — must be visible on dark background
+  in_transit: 0.90,
   passed:     0.55,
 };
 
+// Base half-size at 25µm, scaled by diameter
+function particleSize(d_p_um: number): number {
+  return d_p_um <= 12 ? 3.5 : d_p_um <= 30 ? 5.0 : 7.0;
+}
+
+// Derive fiber orientation angle (degrees) from trail direction.
+// Uses last trail point → current position vector.
+function fiberAngle(p: ParticlePoint): number {
+  if (p.trail && p.trail.length >= 1) {
+    const last = p.trail[p.trail.length - 1];
+    const dx = p.x - last.x;
+    const dy = p.y - last.y;
+    if (Math.abs(dx) + Math.abs(dy) > 0.5) {
+      return Math.atan2(dy, dx) * (180 / Math.PI);
+    }
+  }
+  return 12;  // default slight angle when no trail
+}
+
+// PP/PE → filled circle; PET → thin curved fiber line
+function ParticleShape({ p }: { p: ParticlePoint }) {
+  const color   = SPECIES_HUE[p.species] ?? '#aaaaaa';
+  const sz      = particleSize(p.d_p_um);
+  const opacity = STATUS_OPACITY[p.status] ?? 0.65;
+
+  if (p.species !== 'PET') {
+    // Pellet — simple circle
+    return (
+      <circle cx={p.x} cy={p.y} r={sz}
+        fill={color} opacity={opacity} filter="url(#fxStrong)" />
+    );
+  }
+
+  // PET fiber — thin curved line oriented along direction of travel
+  const angle = fiberAngle(p);
+  const rad   = angle * (Math.PI / 180);
+  const len   = sz * 2.8;
+  const nx    = -Math.sin(rad);   // normal direction for slight bow
+  const ny    = Math.cos(rad);
+  const bow   = len * 0.08;       // small midpoint bow for realism
+
+  const x1 = p.x - Math.cos(rad) * len / 2;
+  const y1 = p.y - Math.sin(rad) * len / 2;
+  const x2 = p.x + Math.cos(rad) * len / 2;
+  const y2 = p.y + Math.sin(rad) * len / 2;
+  const cx = p.x + nx * bow;
+  const cy = p.y + ny * bow;
+
+  return (
+    <path
+      d={`M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`}
+      stroke={color} strokeWidth={1.8} fill="none"
+      strokeLinecap="round" opacity={opacity} filter="url(#fxStrong)"
+    />
+  );
+}
+
 interface ParticleStreamRendererProps {
-  points: ParticlePoint[];
+  points:   ParticlePoint[];
 }
 
 function ParticleStreamRenderer({ points }: ParticleStreamRendererProps) {
   if (points.length === 0) return null;
   return (
     <>
-      {points.map((p, i) => (
-        <g key={i}>
-          {/* Trajectory trail — faint dots from inlet toward capture/exit point */}
-          {p.trail?.map((tp, ti) => {
-            const trailLen = p.trail!.length;
-            const opacity  = 0.20 + (ti / Math.max(trailLen - 1, 1)) * 0.45;
-            return (
-              <circle
-                key={ti}
-                cx={tp.x}
-                cy={tp.y}
-                r={3.5}
-                fill={SPECIES_HUE[p.species] ?? '#aaaaaa'}
-                opacity={opacity}
+      {points.map((p, i) => {
+        const color = SPECIES_HUE[p.species] ?? '#aaaaaa';
+        return (
+          <g key={i}>
+            {/* Trajectory trail — polyline from inlet to current position */}
+            {p.trail && p.trail.length >= 2 && (
+              <polyline
+                points={[...p.trail, { x: p.x, y: p.y }]
+                  .map(tp => `${tp.x},${tp.y}`)
+                  .join(' ')}
+                fill="none"
+                stroke={color}
+                strokeWidth={1.6}
+                opacity={0.55}
+                strokeLinecap="round"
+                strokeLinejoin="round"
               />
-            );
-          })}
-          {/* Final position — full status-driven visual */}
-          <circle
-            cx={p.x}
-            cy={p.y}
-            r={STATUS_RADIUS[p.status]  ?? 3.5}
-            fill={SPECIES_HUE[p.species] ?? '#aaaaaa'}
-            opacity={STATUS_OPACITY[p.status] ?? 0.65}
+            )}
+            {/* Particle at physics position — morphology-based shape */}
+            <ParticleShape p={p} />
+          </g>
+        );
+      })}
+    </>
+  );
+}
+
+// ── Channel deposit renderer — shows accumulated captured particles ────────
+// Positions come from backend deposit list (x_norm → SVG x already mapped).
+// y is the channel centerline — frontend-assigned, not physics-derived.
+interface ChannelDepositsProps {
+  deposits: DepositedParticle[];
+  chY:      number;
+  chH:      number;
+}
+
+function ChannelDeposits({ deposits, chY, chH }: ChannelDepositsProps) {
+  if (deposits.length === 0) return null;
+  const cy = chY + chH / 2;
+  return (
+    <>
+      {deposits.map((p, i) => {
+        const color = SPECIES_HUE[p.species] ?? '#aaaaaa';
+        const sz    = Math.max(2.2, particleSize(p.d_p_um) * 0.70);  // larger: Item 3 visibility
+        const yJitter = ((i * 7919) % 5 - 2) * 0.9;  // deterministic y scatter in channel
+
+        if (p.species !== 'PET') {
+          return (
+            <circle key={i} cx={p.x} cy={cy + yJitter} r={sz}
+              fill={color} opacity={0.88} filter="url(#fxSoft)" />
+          );
+        }
+        // PET fiber in channel — horizontal orientation, slight bow
+        const len = sz * 2.5;
+        const bow = len * 0.10;
+        return (
+          <path key={i}
+            d={`M ${p.x - len / 2} ${cy + yJitter} Q ${p.x} ${cy + yJitter + bow} ${p.x + len / 2} ${cy + yJitter}`}
+            stroke={color} strokeWidth={1.6} fill="none"
+            strokeLinecap="round" opacity={0.88}
           />
-        </g>
-      ))}
+        );
+      })}
+    </>
+  );
+}
+
+// ── Storage chamber particle renderer ─────────────────────────────────────
+// No position data — particles are distributed deterministically in chamber.
+interface StorageParticlesProps {
+  particles: StoredParticle[];
+}
+
+function StorageParticles({ particles }: StorageParticlesProps) {
+  if (particles.length === 0) return null;
+  // Storage chamber bounds: x=718–882, y=248–324 (below clean water bore)
+  const X0 = 722; const XW = 156;
+  const Y0 = 252; const YH = 68;
+  return (
+    <>
+      {particles.map((p, i) => {
+        // Deterministic scatter positions
+        const x = X0 + ((i * 5381 + 1277) % XW);
+        const y = Y0 + ((i * 3547 + 883)  % YH);
+        const color = SPECIES_HUE[p.species] ?? '#aaaaaa';
+        const sz = Math.max(1.5, particleSize(p.d_p_um) * 0.50);
+
+        if (p.species !== 'PET') {
+          return <circle key={i} cx={x} cy={y} r={sz}
+            fill={color} opacity={0.55} />;
+        }
+        const len = sz * 2.2;
+        const angle = ((i * 2341) % 180) - 90;
+        return (
+          <line key={i}
+            x1={x - len / 2} y1={y} x2={x + len / 2} y2={y}
+            stroke={color} strokeWidth={1.2} strokeLinecap="round"
+            opacity={0.55}
+            transform={`rotate(${angle}, ${x}, ${y})`}
+          />
+        );
+      })}
     </>
   );
 }
@@ -243,6 +378,15 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
             100% { transform: translateX(-60px);  opacity: 0;    }
           }
           .bf-sweep { animation: bfSweep 1.4s linear infinite; }
+
+          @keyframes chForwardFlush {
+            0%   { transform: translateX(0px);    opacity: 0.0; }
+            5%   { transform: translateX(0px);    opacity: 0.5; }
+            88%  { transform: translateX(600px);  opacity: 0.2; }
+            100% { transform: translateX(600px);  opacity: 0.0; }
+          }
+          .ch-forward-flush { animation: chForwardFlush 1.4s ease-in infinite; }
+
           @keyframes swapPulse {
             0%, 100% { opacity: 1.0; }
             50%       { opacity: 0.45; }
@@ -335,16 +479,35 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
       ))}
 
       {/* ── PARTICLE STREAMS — physics positions from Python engine ─── */}
-      {STAGES.map((_stg, i) => (
-        <g key={`ps-${i}`}>
-          {/* Particle streams: rendered from Python physics output, no browser physics */}
-          {s?.particleStreams && (
-            <ParticleStreamRenderer
-              points={s.particleStreams[`s${i + 1}` as 's1' | 's2' | 's3']}
-            />
-          )}
-        </g>
-      ))}
+      {STAGES.map((stg, i) => {
+        const streamKey  = `s${i + 1}` as 's1' | 's2' | 's3';
+        const depositKey = `s${i + 1}Deposited` as 's1Deposited' | 's2Deposited' | 's3Deposited';
+        const points   = s?.particleStreams?.[streamKey]   ?? [];
+        const deposits = s?.particleStreams?.[depositKey]  ?? [];
+        const captured = points.filter(p => p.status === 'captured');
+        return (
+          <g key={`ps-${i}`}>
+            <ParticleStreamRenderer points={points} />
+            {/* Ejection path — captured particles traverse apex → collection channel.
+                Drawn as a dashed drop line along the ejection pipe column. */}
+            {captured.map((p, pi) => (
+              <line key={`ej-p-${pi}`}
+                x1={p.x} y1={p.y}
+                x2={p.x} y2={stg.chY}
+                stroke={SPECIES_HUE[p.species] ?? '#888888'}
+                strokeWidth={1.4}
+                strokeDasharray="3 2"
+                opacity={0.70}
+              />
+            ))}
+            {/* Channel deposits — backend-driven captured particle dots */}
+            <ChannelDeposits deposits={deposits} chY={stg.chY} chH={stg.chH} />
+          </g>
+        );
+      })}
+
+      {/* ── STORAGE PARTICLES — accumulated from backflush drains ───── */}
+      <StorageParticles particles={s?.particleStreams?.storage ?? []} />
 
       {/* ── INLET FACE OVALS ────────────────────────────────────────── */}
       {INLET_OVALS.map(({ cx, stroke }) => (
@@ -453,6 +616,13 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
         const flush   = fActive[i];
         const fillW   = Math.round(fill * 556);   // channel width = 556 (x=118 to x=674)
         const tIds    = ['tS1', 'tS2', 'tS3'];
+        // Per-stage simulation tracer capture counts — from backend truth, labeled as sim
+        const capCounts = [
+          { pp: s?.capturedPpS1 ?? 0, pe: s?.capturedPeS1 ?? 0, pet: s?.capturedPetS1 ?? 0 },
+          { pp: s?.capturedPpS2 ?? 0, pe: s?.capturedPeS2 ?? 0, pet: s?.capturedPetS2 ?? 0 },
+          { pp: s?.capturedPpS3 ?? 0, pe: s?.capturedPeS3 ?? 0, pet: s?.capturedPetS3 ?? 0 },
+        ][i];
+        const capStr = `PP:${capCounts.pp} PE:${capCounts.pe} PET:${capCounts.pet} [sim]`;
         return (
           <g key={`ch-${stg.label}`}>
             {/* Channel tube structure */}
@@ -471,16 +641,30 @@ export default function ConicalCascadeView({ state }: ConicalCascadeViewProps) {
               fontSize={8} fontFamily={FONT} letterSpacing={0.5}>
               {stg.label}  COLLECTION  ·  {stg.label === 'S1' ? '500µm stage' : stg.label === 'S2' ? '100µm stage' : '5µm membrane'}
             </text>
+            {/* Per-stage sim-tracer capture count — backend truth only, not estimated mass */}
+            <text x={670} y={stg.chY + 11} textAnchor="end" fill="#5A8AAA"
+              fontSize={6.5} fontFamily={FONT} opacity={0.85}>
+              {capStr}
+            </text>
           </g>
         );
       })}
 
-      {/* Backflush sweep overlay — sweeps R→L through channel band when bf active */}
+      {/* Backflush sweep — sweeps R→L through the CONE BORE (reversed flow in main channel) */}
       {(s?.backflush ?? 0) > 0.5 && (
-        <rect x={118} y={250} width={558} height={68}
-          fill="#38BDF8" className="bf-sweep"
+        <rect x={118} y={64} width={558} height={180}
+          fill="#38BDF8" opacity={1} className="bf-sweep"
           style={{ transformOrigin: 'left center' }} />
       )}
+
+      {/* Channel forward flush — during backflush, channels drain L→R into storage.
+          Separate per-stage sweeps in each stage colour so origin is visually clear. */}
+      {(s?.backflush ?? 0) > 0.5 && STAGES.map((stg, i) => (
+        <rect key={`chflush-${i}`}
+          x={118} y={stg.chY} width={556} height={stg.chH}
+          fill={stg.color} className="ch-forward-flush"
+          style={{ transformOrigin: 'left center' }} />
+      ))}
 
       {/* ── FLUSH INLETS (highlight active) ─────────────────────────── */}
       {STAGES.map((stg, i) => {

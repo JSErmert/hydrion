@@ -176,8 +176,9 @@ export interface ScenarioInputsRecord {
 export interface ParticlePointRaw {
   x_norm: number;
   r_norm: number;
-  status: string;   // "captured" | "passed"
+  status: string;   // "captured" | "passed" | "in_transit"
   species: string;  // "PP" | "PE" | "PET"
+  d_p_um?: number;  // particle diameter in µm — drives visual size/shape scaling
   trail?: Array<{ x_norm: number; r_norm: number }>;  // sampled trajectory path (cone-local)
 }
 
@@ -198,6 +199,12 @@ export interface ScenarioStepRecord {
     s1: ParticlePointRaw[];
     s2: ParticlePointRaw[];
     s3: ParticlePointRaw[];
+    /** Captured particles deposited in each stage's collection channel */
+    s1Deposited?: Array<{ x_norm: number; species: string; d_p_um: number }>;
+    s2Deposited?: Array<{ x_norm: number; species: string; d_p_um: number }>;
+    s3Deposited?: Array<{ x_norm: number; species: string; d_p_um: number }>;
+    /** Particles accumulated in storage chamber after backflush drain */
+    storage?: Array<{ species: string; d_p_um: number }>;
   };
 }
 

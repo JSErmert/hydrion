@@ -21,15 +21,33 @@ import type { ScenarioStepRecord, ParticlePointRaw } from '../api/types';
 export interface ParticlePoint {
   x: number;        // SVG coordinate (converted from x_norm)
   y: number;        // SVG coordinate (converted from r_norm)
-  status: string;   // "captured" | "passed"
+  status: string;   // "captured" | "passed" | "in_transit"
   species: string;  // "PP" | "PE" | "PET"
+  d_p_um: number;   // particle diameter in µm — drives size and shape rendering
   trail?: Array<{ x: number; y: number }>;  // SVG-space trajectory path
+}
+
+/** Particle deposited in a collection channel — has SVG x position, no y (channel owns y) */
+export interface DepositedParticle {
+  x: number;       // SVG x coordinate (mapped from x_norm)
+  species: string;
+  d_p_um: number;
+}
+
+/** Particle in storage chamber — no position (randomly distributed visually) */
+export interface StoredParticle {
+  species: string;
+  d_p_um: number;
 }
 
 export interface ParticleStreams {
   s1: ParticlePoint[];
   s2: ParticlePoint[];
   s3: ParticlePoint[];
+  s1Deposited: DepositedParticle[];
+  s2Deposited: DepositedParticle[];
+  s3Deposited: DepositedParticle[];
+  storage: StoredParticle[];
 }
 
 // Stage geometry for (x_norm, r_norm) → SVG coordinate conversion.
@@ -48,14 +66,26 @@ function coneToSVG(
   stageIdx: number,
 ): { x: number; y: number } {
   const stg = _STAGE_GEOM[stageIdx];
-  // The cone wall narrows linearly from apexY at x=xStart to CY at x=apexX.
-  // r_norm is the fraction of the LOCAL wall height from the centreline.
-  // Without the (1−xNorm) taper factor, particles at x_norm>0.5 are placed
-  // outside the visible cone boundary and render off-screen.
+  // r_norm=0 → centreline (CY), r_norm=1 → concentration zone bottom (apexY).
+  // The taper lives in the physics engine (r_norm tracks radial displacement
+  // relative to the local cone radius); no geometric correction needed here.
   return {
     x: stg.xStart + xNorm * (stg.apexX - stg.xStart),
-    y: _CY + rNorm * (stg.apexY - _CY) * (1 - xNorm),
+    y: _CY + rNorm * (stg.apexY - _CY),
   };
+}
+
+function mapDeposited(
+  raw: Array<{ x_norm: number; species: string; d_p_um: number }> | undefined,
+  stageIdx: number,
+): DepositedParticle[] {
+  if (!raw || raw.length === 0) return [];
+  const stg = _STAGE_GEOM[stageIdx];
+  return raw.map(p => ({
+    x:       stg.xStart + p.x_norm * (stg.apexX - stg.xStart),
+    species: p.species,
+    d_p_um:  p.d_p_um,
+  }));
 }
 
 function mapParticleStream(
@@ -67,6 +97,7 @@ function mapParticleStream(
     ...coneToSVG(p.x_norm, p.r_norm, stageIdx),
     status:  p.status,
     species: p.species,
+    d_p_um:  p.d_p_um ?? 25,
     trail:   p.trail?.map(tp => coneToSVG(tp.x_norm, tp.r_norm, stageIdx)),
   }));
 }
@@ -133,6 +164,18 @@ export interface HydrosDisplayState {
   bypassLabel: BypassLabel;
   efficiencyPct: number;     // captureEff * 100
   nextActions: string[];
+
+  // Per-stage simulation particle capture counts (from ParticleDynamicsEngine 9-particle set)
+  // These are counts of the simulation tracers, NOT of the full concentration flow.
+  capturedPpS1: number;
+  capturedPeS1: number;
+  capturedPetS1: number;
+  capturedPpS2: number;
+  capturedPeS2: number;
+  capturedPetS2: number;
+  capturedPpS3: number;
+  capturedPeS3: number;
+  capturedPetS3: number;
 
   // Step identity
   t: number;
@@ -277,6 +320,16 @@ export function mapStepRecordToDisplayState(step: ScenarioStepRecord): HydrosDis
     efficiencyPct,
     nextActions,
 
+    capturedPpS1:  ts['captured_pp_s1']  ?? 0,
+    capturedPeS1:  ts['captured_pe_s1']  ?? 0,
+    capturedPetS1: ts['captured_pet_s1'] ?? 0,
+    capturedPpS2:  ts['captured_pp_s2']  ?? 0,
+    capturedPeS2:  ts['captured_pe_s2']  ?? 0,
+    capturedPetS2: ts['captured_pet_s2'] ?? 0,
+    capturedPpS3:  ts['captured_pp_s3']  ?? 0,
+    capturedPeS3:  ts['captured_pe_s3']  ?? 0,
+    capturedPetS3: ts['captured_pet_s3'] ?? 0,
+
     t: step.t,
     stepIndex: step.stepIndex,
     reward: step.reward,
@@ -286,6 +339,13 @@ export function mapStepRecordToDisplayState(step: ScenarioStepRecord): HydrosDis
           s1: mapParticleStream(step.particleStreams.s1, 0),
           s2: mapParticleStream(step.particleStreams.s2, 1),
           s3: mapParticleStream(step.particleStreams.s3, 2),
+          s1Deposited: mapDeposited(step.particleStreams.s1Deposited, 0),
+          s2Deposited: mapDeposited(step.particleStreams.s2Deposited, 1),
+          s3Deposited: mapDeposited(step.particleStreams.s3Deposited, 2),
+          storage: (step.particleStreams.storage ?? []).map(p => ({
+            species: p.species,
+            d_p_um:  p.d_p_um,
+          })),
         }
       : null,
   };
