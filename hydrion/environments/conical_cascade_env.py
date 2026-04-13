@@ -122,15 +122,20 @@ _FLUSH_DRAIN_RATE    = 0.20    # fraction of channel fill drained per bf step
 #   50 µm — strong DEP + above S1/S2 mesh openings → early capture
 # ---------------------------------------------------------------------------
 _DEFAULT_PARTICLES: list[InputParticle] = [
-    InputParticle("pp-small",   "PP",  d_p_m=10e-6),
-    InputParticle("pe-small",   "PE",  d_p_m=10e-6),
-    InputParticle("pet-small",  "PET", d_p_m=10e-6),
-    InputParticle("pp-median",  "PP",  d_p_m=25e-6),
-    InputParticle("pe-median",  "PE",  d_p_m=25e-6),
-    InputParticle("pet-median", "PET", d_p_m=25e-6),
-    InputParticle("pp-large",   "PP",  d_p_m=50e-6),
-    InputParticle("pe-large",   "PE",  d_p_m=50e-6),
-    InputParticle("pet-large",  "PET", d_p_m=50e-6),
+    # PP (buoyant): nDEP + buoyancy both drive toward axis → reliable apex capture
+    # r0 spread 0.12–0.30 so trajectories are visually distinct and all apex-captured in S1
+    InputParticle("pp-small",   "PP",  d_p_m=10e-6,  r0_norm=0.12),
+    InputParticle("pp-median",  "PP",  d_p_m=25e-6,  r0_norm=0.18),
+    InputParticle("pp-large",   "PP",  d_p_m=50e-6,  r0_norm=0.30),  # confirmed captured r0=0.30
+    # PE (slightly buoyant): similar to PP but gravity weaker → some pass S1, captured S2
+    InputParticle("pe-small",   "PE",  d_p_m=10e-6,  r0_norm=0.22),
+    InputParticle("pe-median",  "PE",  d_p_m=25e-6,  r0_norm=0.35),
+    InputParticle("pe-large",   "PE",  d_p_m=50e-6,  r0_norm=0.50),
+    # PET (sinking): gravity opposes nDEP → starts off-axis, mostly passes cascade
+    # Shows physics limit: PET requires narrow r0 or high voltage for apex capture
+    InputParticle("pet-small",  "PET", d_p_m=10e-6,  r0_norm=0.55),
+    InputParticle("pet-median", "PET", d_p_m=25e-6,  r0_norm=0.65),
+    InputParticle("pet-large",  "PET", d_p_m=50e-6,  r0_norm=0.75),
 ]
 
 
@@ -218,6 +223,11 @@ class ConicalCascadeEnv(gym.Env):
         self._storage_fill: float       = 0.0
         self._channel_fill: list[float] = [0.0, 0.0, 0.0]
 
+        # Visual deposit tracking — captured particle dots in channels and storage.
+        # Updated at each 30-step animation cycle boundary; cleared on backflush/reset.
+        self._channel_deposits: list[list[dict]] = [[], [], []]
+        self._storage_particles: list[dict]      = []
+
         # Particle dynamics engine
         self._particle_engine  = ParticleDynamicsEngine()
         self._particle_set     = particles if particles is not None else list(_DEFAULT_PARTICLES)
@@ -240,6 +250,8 @@ class ConicalCascadeEnv(gym.Env):
         self._state = {}
         self._storage_fill = 0.0
         self._channel_fill = [0.0, 0.0, 0.0]
+        self._channel_deposits = [[], [], []]
+        self._storage_particles = []
 
         self.hydraulics.reset()
         self._state.update(self.hydraulics.state)
@@ -323,24 +335,65 @@ class ConicalCascadeEnv(gym.Env):
                 backflush  = bf_active,
             )
             trajs_per_stage[i] = trajs
-            # Cascade routing: only 'passed' particles enter the next stage
+            # Cascade routing: only 'passed' particles enter the next stage.
+            # Carry the final r_norm from this stage as r0_norm for the next —
+            # a particle exiting S1 at r_norm=0.6 enters S2 at r_norm=0.6,
+            # not reset to mid-radius. Resetting would erase all radial displacement
+            # accumulated in the upstream stage, making S2/S3 independent of S1.
             active_particles = [
-                InputParticle(t.particle_id, t.species, t.d_p_m)
+                InputParticle(
+                    t.particle_id, t.species, t.d_p_m,
+                    r0_norm=t.positions[-1][1] if t.positions else 0.5,
+                )
                 for t in trajs if t.final_status == "passed"
             ]
 
         # Particles still in active_particles after S3 escaped the full cascade
         escaped_device = active_particles
 
-        # Write particle_streams — animated position along each trajectory.
-        # phase_frac cycles 0→1 over 10 steps so particles visibly traverse
-        # each cone stage even though each integrate() call covers a full
-        # traversal internally.
-        phase_frac = (self._step % 10) / 10.0
+        # ── Cascade animation — 30-step cycle, one 10-step window per stage ──────
+        # S1 animates in steps 0–9, S2 in 10–19, S3 in 20–29.
+        # Each stage stream is EMPTY outside its window so the viewer sees
+        # particles travel S1 → S2 → S3 in temporal sequence, not in parallel.
+        _CYCLE     = 30
+        _WIN       = 10
+        _cycle     = self._step % _CYCLE
+        _win_idx   = _cycle // _WIN             # 0=S1, 1=S2, 2=S3
+        _win_phase = (_cycle % _WIN) / max(_WIN - 1, 1)   # 0.0 → 1.0
+
+        def _stage_phase(target: int) -> "float | None":
+            return _win_phase if _win_idx == target else None
+
+        phase_s1 = _stage_phase(0)
+        phase_s2 = _stage_phase(1)
+        phase_s3 = _stage_phase(2)
+
+        # At the start of each cycle: record newly captured particles into
+        # the persistent channel deposit lists.  The same 9-particle set is
+        # re-simulated every step; we sample captures only once per cycle to
+        # avoid duplicating the same events.
+        if _cycle == 0:
+            for i in range(3):
+                for t in trajs_per_stage[i]:
+                    if t.final_status == "captured":
+                        self._channel_deposits[i].append({
+                            "x_norm":  t.positions[-1][0] if t.positions else 0.90,
+                            "species": t.species,
+                            "d_p_um":  t.d_p_m * 1e6,
+                        })
+                # Cap to 30 visible deposits per stage (visual budget)
+                self._channel_deposits[i] = self._channel_deposits[i][-30:]
+
         self._state["particle_streams"] = {
-            "s1": self._make_stream(trajs_per_stage[0], phase_frac),
-            "s2": self._make_stream(trajs_per_stage[1], phase_frac),
-            "s3": self._make_stream(trajs_per_stage[2], phase_frac),
+            "s1": self._make_stream(trajs_per_stage[0], phase_s1),
+            "s2": self._make_stream(trajs_per_stage[1], phase_s2),
+            "s3": self._make_stream(trajs_per_stage[2], phase_s3),
+            # Deposited particles in collection channels (persist until backflush)
+            "s1Deposited": list(self._channel_deposits[0]),
+            "s2Deposited": list(self._channel_deposits[1]),
+            "s3Deposited": list(self._channel_deposits[2]),
+            # Accumulated particles in storage chamber
+            "storage": list(self._storage_particles[-20:]),
         }
 
         # Per-stage capture counts
@@ -432,6 +485,15 @@ class ConicalCascadeEnv(gym.Env):
                     0.0, 1.0,
                 ))
                 self._channel_fill[i] = max(0.0, self._channel_fill[i] - drained)
+
+                # Move visual deposit dots from channel → storage
+                n_drain = max(1, int(len(self._channel_deposits[i]) * _FLUSH_DRAIN_RATE))
+                to_storage = self._channel_deposits[i][:n_drain]
+                self._storage_particles.extend(to_storage)
+                self._channel_deposits[i] = self._channel_deposits[i][n_drain:]
+
+            # Cap storage particle list (visual budget only)
+            self._storage_particles = self._storage_particles[-50:]
             flush_flag = 1.0
         else:
             flush_flag = 0.0
@@ -448,6 +510,17 @@ class ConicalCascadeEnv(gym.Env):
         pol_pp = self.pol_zone.state_dict(PP, Q_m3s)
         self._state.update(pol_pp)
 
+        # Shield-compatible normalized aliases — ShieldedEnv reads these exact keys
+        # from env.truth_state. Normalization: Q_max=20 L/min, P_max=80 kPa.
+        self._state["flow"]     = float(np.clip(
+            self._state.get("q_processed_lmin", 0.0) / 20.0, 0.0, 1.0))
+        self._state["pressure"] = float(np.clip(
+            self._state.get("delta_p_kpa", 0.0) / 80.0, 0.0, 1.0))
+        ff_s1 = float(self._state.get("fouling_frac_s1", 0.0))
+        ff_s2 = float(self._state.get("fouling_frac_s2", 0.0))
+        ff_s3 = float(self._state.get("fouling_frac_s3", 0.0))
+        self._state["clog"]     = float(np.clip((ff_s1 + ff_s2 + ff_s3) / 3.0, 0.0, 1.0))
+
         self._step += 1
         reward   = self._reward()
         done     = self._step >= self._max_steps
@@ -458,22 +531,26 @@ class ConicalCascadeEnv(gym.Env):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_stream(trajs_list: list, phase_frac: float = 1.0) -> list[dict]:
+    def _make_stream(trajs_list: list, phase_frac: "float | None" = 1.0) -> list[dict]:
         """
-        Return an animated particle position + trail for each trajectory.
+        Return an animated particle position + full trajectory trail for each trajectory.
 
         phase_frac (0.0–1.0): which fraction along the in-cone trajectory
         to show as the current particle dot. Cycling this each env step makes
         particles appear to traverse the cone rather than always showing the
         final (past-apex) position.
 
-        Only positions with x_norm <= 1.0 are used — positions past the apex
+        Only positions with x_norm in [0, 1] are used — positions past the apex
         are outside the visible SVG cone and would not render.
 
-        Trail: N_TRAIL positions immediately before the sampled position,
-        providing a fading path cue.
+        Trail: ALL positions from inlet up to the display position, subsampled
+        to at most N_TRAIL_MAX points when the trajectory is long. This produces
+        a visible path showing the particle's route through the stage, including
+        the radial displacement driven by nDEP and gravity.
         """
-        N_TRAIL = 4
+        if phase_frac is None:
+            return []   # this stage is outside its animation window — show nothing
+        N_TRAIL_MAX = 20   # max trail points after subsampling
         result = []
         for t in trajs_list:
             if not t.positions:
@@ -482,7 +559,6 @@ class ConicalCascadeEnv(gym.Env):
             # Restrict to in-cone positions (x_norm in [0, 1])
             inside = [(x, r) for x, r in t.positions if 0.0 <= x <= 1.0]
             if not inside:
-                # All positions outside cone — use first position as fallback
                 inside = [t.positions[0]]
 
             n = len(inside)
@@ -490,25 +566,27 @@ class ConicalCascadeEnv(gym.Env):
             display_idx = min(int(phase_frac * n), n - 1)
             display_pos = inside[display_idx]
 
-            # Trail: up to N_TRAIL positions before display_idx
-            trail_start = max(0, display_idx - N_TRAIL)
-            trail = [
-                {"x_norm": pos[0], "r_norm": pos[1]}
-                for pos in inside[trail_start:display_idx]
-            ]
+            # Full trail: all positions from inlet to (but not including) display_idx
+            trail_raw = inside[:display_idx]
+            if len(trail_raw) > N_TRAIL_MAX:
+                # Subsample evenly to at most N_TRAIL_MAX points
+                step = len(trail_raw) / N_TRAIL_MAX
+                trail_raw = [trail_raw[int(i * step)] for i in range(N_TRAIL_MAX)]
+            trail = [{"x_norm": pos[0], "r_norm": pos[1]} for pos in trail_raw]
 
-            # Display status: show "in_transit" while the particle is mid-animation
-            # so the frontend uses the larger, brighter in-transit dot style.
-            # Only show final_status ("captured"/"passed") when the particle has
-            # reached its terminal position (phase_frac = 1.0, i.e. last inside frame).
+            # Show "in_transit" mid-animation; reveal final_status for the last 25%
+            # of frames so the apex-to-channel ejection path is visible for several
+            # consecutive steps rather than only the terminal frame.
+            _captured_onset = max(0, n - max(1, n // 4))
             display_status = (
-                t.final_status if display_idx == n - 1 else "in_transit"
+                t.final_status if display_idx >= _captured_onset else "in_transit"
             )
             result.append({
                 "x_norm":  display_pos[0],
                 "r_norm":  display_pos[1],
                 "status":  display_status,
                 "species": t.species,
+                "d_p_um":  t.d_p_m * 1e6,  # diameter in µm — used by frontend for size/shape scaling
                 "trail":   trail,
             })
         return result
