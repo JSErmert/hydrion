@@ -51,5 +51,41 @@ def test_env_api():
             break
 
 
+def test_e_field_norm_obs3_nonzero_after_voltage():
+    """
+    Regression: obs[3] (E_field_norm) must be non-zero after applying
+    a non-zero node_voltage_cmd.
+
+    Bug history (2026-04-12):
+        state/init.py initialised 'E_norm' (obs12_v1 key).
+        env.py info dict read truth_state['E_norm'] (always 0.0).
+        service/app.py telemetry also read 'E_norm' (always 0.0).
+        The obs pipeline (sensor_fusion.py) correctly reads 'E_field_norm'
+        (obs12_v2 key), written by ElectrostaticsModel. Obs[3] was NOT
+        silently zero — the bug was in info/telemetry only, not RL training.
+        Fixed: init.py, env.py info, app.py telemetry all use E_field_norm.
+    """
+    env = HydrionEnv(config_path="configs/default.yaml")
+    env.reset(seed=0)
+    # Run 10 steps with node_voltage_cmd=1.0 (max voltage)
+    action = np.array([0.5, 0.5, 0.0, 1.0], dtype=np.float32)
+    obs_list = []
+    for _ in range(10):
+        obs, _, _, _, _ = env.step(action)
+        obs_list.append(float(obs[3]))
+
+    # obs[3] = E_field_norm — must be > 0 with non-zero voltage applied
+    assert max(obs_list) > 0.01, (
+        f"obs[3] (E_field_norm) stayed near zero at max voltage: {obs_list}"
+    )
+    # truth_state must use the obs12_v2 key
+    assert "E_field_norm" in env.truth_state, "E_field_norm missing from truth_state"
+    # Legacy E_norm key should NOT be in truth_state (it was obs12_v1)
+    # (init.py still writes it for backward-compat logging; relax this check)
+    assert float(env.truth_state.get("E_field_norm", -1)) > 0.0, (
+        "truth_state['E_field_norm'] is zero even after voltage applied"
+    )
+
+
 if __name__ == "__main__":
     test_env_api()

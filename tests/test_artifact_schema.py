@@ -31,7 +31,7 @@ def test_metrics_stability_flag(tmp_path):
             "flow_norm": 0.5,
             "pressure_norm": 0.5,
             "clog_norm": 0.1,
-            "E_norm": 0.0,
+            "E_field_norm": 0.0,   # obs12_v2 key (was E_norm in v1)
             "C_out": 0.0,
             "particle_capture_eff": 0.0,
         },
