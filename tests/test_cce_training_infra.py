@@ -11,13 +11,21 @@ def make_env() -> ConicalCascadeEnv:
 
 
 def test_shield_alias_keys_present_after_step():
-    """flow, pressure, clog must be in _state (normalized) after step."""
+    """flow, pressure, clog must be in _state (normalized) after step.
+    pressure must be > 0 when pump/valve are active (dp_total_pa > 0).
+    """
     env = make_env()
     env.reset(seed=0)
-    env.step(np.array([0.5, 0.5, 0.0, 0.8], dtype=np.float32))
+    # Active pump + valve should produce nonzero pressure
+    env.step(np.array([0.8, 0.8, 0.0, 0.8], dtype=np.float32))
     for key in ("flow", "pressure", "clog"):
         assert key in env._state, f"shield alias '{key}' missing from _state"
         assert 0.0 <= env._state[key] <= 1.0, f"alias '{key}' out of [0,1]: {env._state[key]}"
+    # Pressure must be non-zero when the pump is on — if it's 0.0, the hydraulics key is wrong
+    assert env._state["pressure"] > 0.0, (
+        f"pressure alias is 0.0 — check that dp_total_pa is written by hydraulics. "
+        f"Full state keys: {sorted(env._state.keys())}"
+    )
 
 
 def test_shielded_env_wraps_cce_without_error():

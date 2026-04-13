@@ -515,7 +515,7 @@ class ConicalCascadeEnv(gym.Env):
         self._state["flow"]     = float(np.clip(
             self._state.get("q_processed_lmin", 0.0) / 20.0, 0.0, 1.0))
         self._state["pressure"] = float(np.clip(
-            self._state.get("delta_p_kpa", 0.0) / 80.0, 0.0, 1.0))
+            self._state.get("dp_total_pa", 0.0) / 80_000.0, 0.0, 1.0))
         ff_s1 = float(self._state.get("fouling_frac_s1", 0.0))
         ff_s2 = float(self._state.get("fouling_frac_s2", 0.0))
         ff_s3 = float(self._state.get("fouling_frac_s3", 0.0))
@@ -611,7 +611,7 @@ class ConicalCascadeEnv(gym.Env):
     def _obs(self) -> np.ndarray:
         s = self._state
         q    = float(s.get("q_processed_lmin", 10.0))
-        dp   = float(s.get("delta_p_kpa", 0.0))
+        dp   = float(s.get("dp_total_pa", 0.0)) / 1000.0  # Pa → kPa for normalisation
         ff   = (
             float(s.get("fouling_frac_s1", 0.0))
             + float(s.get("fouling_frac_s2", 0.0))
@@ -640,7 +640,7 @@ class ConicalCascadeEnv(gym.Env):
         Mirrors HydrionEnv reward structure for comparability.
         """
         eta  = float(self._state.get("eta_cascade", 0.0))
-        dp   = float(self._state.get("delta_p_kpa", 0.0))
+        dp   = float(self._state.get("dp_total_pa", 0.0)) / 1000.0  # Pa → kPa
         volt = float(self._state.get("voltage_norm", 0.8))
         dp_penalty   = max(0.0, dp - 80.0) / 70.0   # penalise above 80 kPa
         volt_penalty = volt * 0.05                   # small energy cost
