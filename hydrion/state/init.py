@@ -102,9 +102,9 @@ def init_truth_state() -> TruthState:
             # ----------------------------------------------------------------
             # Electrostatics (written by ElectrostaticsModel — unchanged)
             # ----------------------------------------------------------------
-            "V_node":  0.0,
-            "E_field": 0.0,
-            "E_norm":  0.0,
+            "V_node":       0.0,
+            "E_field":      0.0,
+            "E_field_norm": 0.0,   # obs12_v2 key (was E_norm in v1)
 
             # ----------------------------------------------------------------
             # Particles (written by ParticleModel — unchanged)

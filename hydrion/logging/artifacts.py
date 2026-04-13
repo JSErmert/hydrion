@@ -83,7 +83,7 @@ def append_spine_step(run_dir: Path, step_payload: Dict[str, Any]) -> None:
         "flow_norm",
         "pressure_norm",
         "clog_norm",
-        "E_norm",
+        "E_field_norm",   # obs12_v2 key (was E_norm in v1)
         "C_out",
         "particle_capture_eff",
     ]

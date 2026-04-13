@@ -318,8 +318,8 @@ class HydrionEnv(gym.Env):
             "bf_pulse_idx":           float(self.truth_state.get("bf_pulse_idx",           0.0)),
             "bf_cooldown_remaining":  float(self.truth_state.get("bf_cooldown_remaining",  0.0)),
             "bf_n_bursts_completed":  float(self.truth_state.get("bf_n_bursts_completed",  0.0)),
-            # Electrostatics + particles
-            "E_norm":           float(self.truth_state.get("E_norm",           0.0)),
+            # Electrostatics + particles (obs12_v2: key is E_field_norm, not E_norm)
+            "E_field_norm":     float(self.truth_state.get("E_field_norm",     0.0)),
             "capture_eff_part": float(self.truth_state.get("particle_capture_eff", 0.0)),
             # Sensors
             "sensor_turbidity": float(self.sensor_state.get("sensor_turbidity", 0.0)),

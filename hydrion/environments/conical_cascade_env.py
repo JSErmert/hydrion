@@ -58,11 +58,35 @@ def _default_stages() -> list[ConicalStageSpec]:
     """
     Three-stage conical cascade with graduated pore sizes.
     All geometry values are [DESIGN_DEFAULT] — replace with physical device specs.
+
+    Bed depth model (realism correction 2026-04-12):
+        S1: slant_length_m (default).  Woven mesh on cone wall — particles
+            traverse many collector contacts along the slant.  Deep-bed model
+            is appropriate here.
+        S2: bed_depth_m = d_c_m (single-screen).  Flat screen stage; each
+            particle contacts at most one collector layer.  Prior slant model
+            (1628x amplification) caused structural saturation.
+        S3: bed_depth_m = d_c_m (single-screen membrane).  Microporous membrane
+            stage — explicitly noted as non-woven in mesh spec.  Prior slant
+            model (27200x amplification) caused structural saturation regardless
+            of particle size or voltage.
+
+    S3 DEP config (realism correction 2026-04-12):
+        tip_radius_m changed from 0.05mm to 3um to represent iDEP pore-scale
+        electrode features appropriate for a microporous membrane.
+        Prior macroscale tip (50um) produced v_crit ~ 2.8mm/s for 1um particles
+        vs U_face ~ 1020mm/s — DEP was never operative.
+        With 3um tip: v_crit ~ 788mm/s at max voltage — reaches U_face at
+        Q ~ 5 L/min, making voltage control genuinely policy-sensitive.
+
+    Impact: prior ppo_cce_v1 (trained before this correction) is invalid for
+    capture-sensitive comparison.  Retraining required.
     """
-    # Stage voltage / field config — [DESIGN_DEFAULT] 500V, 5mm gap, 0.5mm tip
+    # Stage voltage / field config — [DESIGN_DEFAULT] unless noted
     dep_s1 = DEPConfig(voltage_V=500.0, electrode_gap_m=5e-3, tip_radius_m=0.5e-3)
     dep_s2 = DEPConfig(voltage_V=500.0, electrode_gap_m=3e-3, tip_radius_m=0.2e-3)
-    dep_s3 = DEPConfig(voltage_V=500.0, electrode_gap_m=1e-3, tip_radius_m=0.05e-3)
+    # S3: tip_radius changed to 3um (iDEP membrane electrode) — see docstring
+    dep_s3 = DEPConfig(voltage_V=500.0, electrode_gap_m=1e-3, tip_radius_m=3e-6)
 
     return [
         ConicalStageSpec(
@@ -70,18 +94,21 @@ def _default_stages() -> list[ConicalStageSpec]:
             mesh=MESH_S1,
             dep=dep_s1,
             D_in_m=0.080, D_tip_m=0.020, L_cone_m=0.120,  # [DESIGN_DEFAULT]
+            # bed_depth_m=None: slant_length model correct for cone-wall mesh
         ),
         ConicalStageSpec(
             label="S2_medium",
             mesh=MESH_S2,
             dep=dep_s2,
             D_in_m=0.040, D_tip_m=0.010, L_cone_m=0.080,  # [DESIGN_DEFAULT]
+            bed_depth_m=MESH_S2.d_c_m,   # single-screen: one collector layer
         ),
         ConicalStageSpec(
             label="S3_fine",
             mesh=MESH_S3_MEMBRANE,
             dep=dep_s3,
             D_in_m=0.020, D_tip_m=0.004, L_cone_m=0.040,  # [DESIGN_DEFAULT]
+            bed_depth_m=MESH_S3_MEMBRANE.d_c_m,  # single-screen membrane
         ),
     ]
 
@@ -171,7 +198,12 @@ class ConicalCascadeEnv(gym.Env):
     # Observation normalisation bounds (same as HydrionEnv where shared)
     OBS_Q_MAX    = 25.0   # L/min
     OBS_DP_MAX   = 150.0  # kPa
-    OBS_VCRIT_MAX = 0.10  # m/s
+    # OBS_VCRIT_MAX: normalisation for obs[7] (v_crit_norm).
+    # 1.0 m/s chosen so the DEP threshold (v_crit=0.789 m/s at V=500V for 1 um)
+    # maps to obs[7]~0.79 and is visible to the agent.  Prior value (0.10 m/s)
+    # clipped obs[7] to 1.0 for V>0.4, making it uninformative.
+    # This constant is an implementation detail — not part of obs12_v2 schema.
+    OBS_VCRIT_MAX = 1.0   # m/s (was 0.10 — updated for 1 um benchmark regime)
 
     def __init__(
         self,
@@ -622,6 +654,7 @@ class ConicalCascadeEnv(gym.Env):
             scaled.append(ConicalStageSpec(
                 label=stg.label, mesh=stg.mesh, dep=new_dep,
                 D_in_m=stg.D_in_m, D_tip_m=stg.D_tip_m, L_cone_m=stg.L_cone_m,
+                bed_depth_m=stg.bed_depth_m,  # propagate single-screen override
             ))
         return scaled
 

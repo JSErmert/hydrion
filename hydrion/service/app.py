@@ -160,27 +160,55 @@ def start_run(req: RunRequest) -> Dict[str, Any]:
 
         obs, reward, terminated, truncated, info = run_env.step(action)
 
-        step_payload: Dict[str, Any] = {
-            "step_idx": step_idx,
-            "sim_time_s": float(env.steps * env.dt),
-            "truth": {
-                "flow_norm": float(env.truth_state.get("flow", 0.0)),
-                "pressure_norm": float(env.truth_state.get("pressure", 0.0)),
-                "clog_norm": float(env.truth_state.get("clog", 0.0)),
-                "E_norm": float(env.truth_state.get("E_norm", 0.0)),
-                "C_out": float(env.truth_state.get("C_out", 0.0)),
+        # Read telemetry from the environment that was actually stepped.
+        # ppo_cce: run_env.env is ConicalCascadeEnv — use _state dict.
+        # other policies: env is HydrionEnv — use truth_state / sensor_state.
+        if _use_ppo_cce:
+            cce = run_env.env   # ConicalCascadeEnv (unwrapped from ShieldedEnv)
+            _s  = cce._state
+            _truth: Dict[str, Any] = {
+                "flow_norm":           float(_s.get("flow",           0.0)),
+                "pressure_norm":       float(_s.get("pressure",       0.0)),
+                "clog_norm":           float(_s.get("clog",           0.0)),
+                "E_field_norm":        float(_s.get("voltage_norm",   0.0)),  # CCE uses voltage_norm
+                "C_out":               float(_s.get("C_out",          0.0)),
+                "particle_capture_eff": float(_s.get("eta_cascade",   0.0)),  # CCE key
+            }
+            _sensors: Dict[str, Any] = {"turbidity": 0.0, "scatter": 0.0}
+            _actions: Dict[str, Any] = {
+                "valve_cmd":       float(_s.get("valve_cmd",     0.0)),
+                "pump_cmd":        float(_s.get("pump_cmd",      0.0)),
+                "bf_cmd":          float(_s.get("bf_cmd",        0.0)),
+                "node_voltage_cmd": float(_s.get("voltage_norm", 0.0)),
+            }
+            _sim_time_s = float(cce._step * cce._dt)
+        else:
+            _truth = {
+                "flow_norm":           float(env.truth_state.get("flow",                0.0)),
+                "pressure_norm":       float(env.truth_state.get("pressure",            0.0)),
+                "clog_norm":           float(env.truth_state.get("clog",                0.0)),
+                "E_field_norm":        float(env.truth_state.get("E_field_norm",        0.0)),
+                "C_out":               float(env.truth_state.get("C_out",              0.0)),
                 "particle_capture_eff": float(env.truth_state.get("particle_capture_eff", 0.0)),
-            },
-            "sensors": {
+            }
+            _sensors = {
                 "turbidity": float(env.sensor_state.get("sensor_turbidity", 0.0)),
-                "scatter": float(env.sensor_state.get("sensor_scatter", 0.0)),
-            },
-            "actions": {
-                "valve_cmd": float(env.truth_state.get("valve_cmd", 0.0)),
-                "pump_cmd": float(env.truth_state.get("pump_cmd", 0.0)),
-                "bf_cmd": float(env.truth_state.get("bf_cmd", 0.0)),
+                "scatter":   float(env.sensor_state.get("sensor_scatter",   0.0)),
+            }
+            _actions = {
+                "valve_cmd":       float(env.truth_state.get("valve_cmd",        0.0)),
+                "pump_cmd":        float(env.truth_state.get("pump_cmd",         0.0)),
+                "bf_cmd":          float(env.truth_state.get("bf_cmd",           0.0)),
                 "node_voltage_cmd": float(env.truth_state.get("node_voltage_cmd", 0.0)),
-            },
+            }
+            _sim_time_s = float(env.steps * env.dt)
+
+        step_payload: Dict[str, Any] = {
+            "step_idx":   step_idx,
+            "sim_time_s": _sim_time_s,
+            "truth":      _truth,
+            "sensors":    _sensors,
+            "actions":    _actions,
             "reward": float(reward),
             "done": bool(terminated),
             "truncated": bool(truncated),
