@@ -144,3 +144,49 @@ def test_api_run_ppo_cce_falls_back_to_random_if_no_model(tmp_path, monkeypatch)
     assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
     assert "run_id" in resp.json()
     assert app_module._ppo_cce_model is None, "model singleton must remain unset when files are absent"
+
+
+def test_api_run_ppo_cce_happy_path_with_mock_model(tmp_path, monkeypatch):
+    """
+    When policy_type='ppo_cce' and model files exist (mocked), endpoint must:
+    - use the PPO branch (not random)
+    - return 200 with run_id
+    - populate the model singleton
+    """
+    import numpy as np
+    from unittest.mock import MagicMock
+    from fastapi.testclient import TestClient
+    from hydrion.service.app import app
+    import hydrion.service.app as app_module
+
+    # Build a minimal mock that satisfies _load_ppo_cce's True path.
+    # We monkeypatch _load_ppo_cce directly to return True and set the globals,
+    # avoiding the need for real model files.
+    mock_model = MagicMock()
+    mock_model.predict.return_value = (np.array([[0.5, 0.5, 0.0, 0.8]]), None)
+
+    mock_vecnorm = MagicMock()
+    mock_vecnorm.normalize_obs.side_effect = lambda x: x  # identity
+
+    def _fake_load():
+        app_module._ppo_cce_model = mock_model
+        app_module._ppo_cce_vec_norm = mock_vecnorm
+        return True
+
+    monkeypatch.setattr(app_module, "_load_ppo_cce", _fake_load)
+    # Reset singletons so _fake_load is called
+    monkeypatch.setattr(app_module, "_ppo_cce_model", None)
+    monkeypatch.setattr(app_module, "_ppo_cce_vec_norm", None)
+
+    client = TestClient(app)
+    resp = client.post("/api/run", json={
+        "policy_type": "ppo_cce",
+        "seed": 0,
+        "config_name": "default.yaml",
+        "max_steps": 5,
+        "noise_enabled": False,
+    })
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+    assert "run_id" in resp.json()
+    # Confirm PPO was actually called (not random)
+    assert mock_model.predict.called, "model.predict must be called when ppo_cce loads successfully"

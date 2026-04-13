@@ -50,6 +50,7 @@ def _load_ppo_cce() -> bool:
             max_clog_soft=0.70,
             max_clog_hard=0.95,
             terminate_on_hard_violation=True,
+            hard_violation_penalty=10.0,
         )
 
         def _make():
@@ -127,18 +128,21 @@ def start_run(req: RunRequest) -> Dict[str, Any]:
     # Determine policy and choose environment for run loop
     if req.policy_type == "ppo_cce" and _load_ppo_cce():
         _use_ppo_cce = True
+        manifest["obs_schema"] = "obs12_v2"
         from hydrion.environments.conical_cascade_env import ConicalCascadeEnv
-        from hydrion.safety.shield import SafetyConfig, ShieldedEnv as _ShieldedEnv
+        from hydrion.safety.shield import SafetyConfig
+        from hydrion.wrappers.shielded_env import ShieldedEnv as _ShieldedEnv
         _safety_cfg = SafetyConfig(
             max_pressure_soft=0.75, max_pressure_hard=1.00,
             max_clog_soft=0.70,     max_clog_hard=0.95,
             terminate_on_hard_violation=True,
+            hard_violation_penalty=10.0,
         )
         run_env = _ShieldedEnv(
             ConicalCascadeEnv(config_path=f"configs/{req.config_name}"),
             cfg=_safety_cfg,
         )
-        run_env._env._max_steps = req.max_steps
+        run_env.env._max_steps = req.max_steps
     else:
         _use_ppo_cce = False
         run_env = env  # existing HydrionEnv
