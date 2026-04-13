@@ -470,7 +470,7 @@ class HydrionEnv(gym.Env):
         )
 
     def _observe(self) -> np.ndarray:
-        # Commit 3: stable observation contract (obs12_v1 — immutable schema)
+        # obs14_v1 — sensor-extended observation contract (M6.2B — 2026-04-13)
         return build_observation(self.truth_state, self.sensor_state)
 
     def render(self) -> None:
