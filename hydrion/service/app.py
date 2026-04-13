@@ -18,6 +18,56 @@ from hydrion.wrappers.shielded_env import ShieldedEnv
 from hydrion.logging import artifacts
 from hydrion.scenarios import ScenarioRunner, load_scenario
 
+# ---------------------------------------------------------------------------
+# PPO-CCE model — lazy-loaded singleton (Constraint 3: cache, not per-request)
+# ---------------------------------------------------------------------------
+_PPO_CCE_MODEL_PATH   = "models/ppo_cce_v1.zip"
+_PPO_CCE_VECNORM_PATH = "models/ppo_cce_v1_vecnorm.pkl"
+_ppo_cce_model    = None   # PPO instance, populated on first ppo_cce request
+_ppo_cce_vec_norm = None   # VecNormalize instance, populated on first ppo_cce request
+
+
+def _load_ppo_cce() -> bool:
+    """
+    Load PPO-CCE model and VecNormalize on first call. Cache for process lifetime.
+    Returns True if loaded successfully, False if files are absent.
+    """
+    global _ppo_cce_model, _ppo_cce_vec_norm
+    if _ppo_cce_model is not None:
+        return True
+    if not Path(_PPO_CCE_MODEL_PATH).exists() or not Path(_PPO_CCE_VECNORM_PATH).exists():
+        return False
+    try:
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+        from hydrion.environments.conical_cascade_env import ConicalCascadeEnv as _CCE
+        from hydrion.safety.shield import SafetyConfig as _SC
+
+        _safety = _SC(
+            max_pressure_soft=0.75,
+            max_pressure_hard=1.00,
+            max_clog_soft=0.70,
+            max_clog_hard=0.95,
+            terminate_on_hard_violation=True,
+        )
+
+        def _make():
+            env = _CCE(config_path="configs/default.yaml")
+            env._max_steps = 400
+            env = ShieldedEnv(env, cfg=_safety)
+            return env
+
+        vec = DummyVecEnv([_make])
+        vec = VecNormalize.load(_PPO_CCE_VECNORM_PATH, vec)
+        vec.training    = False
+        vec.norm_reward = False
+        _ppo_cce_vec_norm = vec
+        _ppo_cce_model    = PPO.load(_PPO_CCE_MODEL_PATH, env=vec)
+        return True
+    except Exception as exc:
+        print(f"[warn] PPO-CCE model load failed: {exc}")
+        return False
+
 
 class RunRequest(BaseModel):
     policy_type: str
@@ -71,10 +121,21 @@ def start_run(req: RunRequest) -> Dict[str, Any]:
     }
     artifacts.write_manifest(run_dir, manifest)
 
+    # Determine policy
+    _use_ppo_cce = req.policy_type == "ppo_cce" and _load_ppo_cce()
+
     # run loop
     obs, info = env.reset(seed=req.seed)
     for step_idx in range(req.max_steps):
-        action = env.action_space.sample()
+        if _use_ppo_cce:
+            import numpy as _np
+            obs_vec  = _np.array([obs])
+            obs_norm = _ppo_cce_vec_norm.normalize_obs(obs_vec)
+            action, _ = _ppo_cce_model.predict(obs_norm, deterministic=True)
+            action = action[0]
+        else:
+            action = env.action_space.sample()
+
         obs, reward, terminated, truncated, info = env.step(action)
 
         step_payload: Dict[str, Any] = {

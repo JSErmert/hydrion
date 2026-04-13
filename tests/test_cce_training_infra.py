@@ -117,3 +117,29 @@ def test_training_script_smoke_1000_steps():
     model.learn(total_timesteps=1000)
     vec_env.close()
     # Reaching here means the full training stack is functional
+
+
+def test_api_run_ppo_cce_falls_back_to_random_if_no_model(tmp_path, monkeypatch):
+    """
+    When policy_type='ppo_cce' but model files are absent,
+    endpoint must not crash — it falls back to random and returns a run_id.
+    """
+    from fastapi.testclient import TestClient
+    import hydrion.service.app as app_module
+    from hydrion.service.app import app
+
+    monkeypatch.setattr(app_module, "_PPO_CCE_MODEL_PATH",   str(tmp_path / "missing.zip"))
+    monkeypatch.setattr(app_module, "_PPO_CCE_VECNORM_PATH", str(tmp_path / "missing.pkl"))
+    monkeypatch.setattr(app_module, "_ppo_cce_model",    None)
+    monkeypatch.setattr(app_module, "_ppo_cce_vec_norm", None)
+
+    client = TestClient(app)
+    resp = client.post("/api/run", json={
+        "policy_type": "ppo_cce",
+        "seed": 0,
+        "config_name": "default.yaml",
+        "max_steps": 5,
+        "noise_enabled": False,
+    })
+    assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+    assert "run_id" in resp.json()
