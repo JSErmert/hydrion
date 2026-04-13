@@ -44,3 +44,28 @@ def test_shielded_env_wraps_cce_without_error():
     assert obs2.shape == (12,)
     assert "safety" in info
     assert isinstance(reward, float)
+
+
+def test_reward_increases_with_flow():
+    """Higher processed flow (same capture) must yield higher reward."""
+    env = make_env()
+    env.reset(seed=0)
+
+    # Low flow: valve nearly closed
+    env._state["q_processed_lmin"] = 2.0
+    env._state["eta_cascade"]      = 0.80
+    env._state["dp_total_pa"]      = 20_000.0
+    env._state["voltage_norm"]     = 0.5
+    r_low = env._reward()
+
+    # High flow: valve open
+    env._state["q_processed_lmin"] = 15.0
+    env._state["eta_cascade"]      = 0.80
+    env._state["dp_total_pa"]      = 20_000.0
+    env._state["voltage_norm"]     = 0.5
+    r_high = env._reward()
+
+    assert r_high > r_low, (
+        f"High-flow reward ({r_high:.4f}) must exceed low-flow reward ({r_low:.4f}) "
+        "for equal capture efficiency"
+    )
