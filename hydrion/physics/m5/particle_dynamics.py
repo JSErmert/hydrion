@@ -57,6 +57,7 @@ class InputParticle:
     particle_id: str
     species: str    # "PP" | "PE" | "PET"
     d_p_m: float    # diameter [m]
+    r0_norm: float = 0.5  # initial radial position [0=axis, 1=wall]; [DESIGN_DEFAULT] mid-radius
 
 
 @dataclass
@@ -180,9 +181,22 @@ def _is_rt_captured(p: SimParticle, mesh_opening_um: float) -> bool:
     """
     RT mesh — mechanical filtration. Size-gated only. No force condition.
     A particle at the wall passes through the mesh if d_p <= opening.
+
+    Wall-slide semantics:
+        When d_p > mesh_opening, the particle cannot pass through the mesh.
+        It presses against the wall (r_norm clamped to 1.0) and is dragged
+        axially by the flow until it reaches the apex accumulation zone
+        (x_norm >= APEX_X_THRESH). Capture fires there, not at the initial
+        wall-contact point. This produces a visible wall-guided trajectory.
+
+        Particles with d_p <= mesh_opening pass freely regardless of r_norm.
     """
     d_p_um = p.d_p_m * 1e6
-    return p.r_norm >= (1.0 - EPSILON_WALL) and d_p_um > mesh_opening_um
+    if d_p_um <= mesh_opening_um:
+        return False  # small enough to pass through mesh
+    # Large particle: capture only when it has slid along the mesh to the apex zone.
+    # r_norm >= 1.0 means it is in contact with the wall (held by size exclusion).
+    return p.r_norm >= 1.0 and p.x_norm >= APEX_X_THRESH
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +273,7 @@ class ParticleDynamicsEngine:
                 species=inp.species,
                 d_p_m=inp.d_p_m,
                 x_norm=0.0,
-                r_norm=0.5,   # [DESIGN_DEFAULT] mid-radius starting position
+                r_norm=inp.r0_norm,  # caller-specified initial radial position
                 vx=0.0,
                 vr=0.0,
                 status="in_transit",
@@ -310,11 +324,17 @@ class ParticleDynamicsEngine:
                         p.status = "captured"
                         captured_at = sub_idx + 1
                         break
-                    # Near-wall transient state
+                    # Near-wall transient state: particle slides along mesh surface
                     p.status = "near_wall" if p.r_norm >= (1.0 - EPSILON_WALL) else "in_transit"
                     # Stage exit
                     if p.x_norm >= 1.0:
-                        p.status = "passed"
+                        d_p_um_check = p.d_p_m * 1e6
+                        if d_p_um_check > mesh_opening_um and p.r_norm >= 1.0:
+                            # Particle at wall, too large for mesh — captured at exit
+                            p.status = "captured"
+                            captured_at = sub_idx + 1
+                        else:
+                            p.status = "passed"
                         break
 
             # Guarantee terminal final_status (ran out of substeps → treat as passed)

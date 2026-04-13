@@ -33,7 +33,20 @@ from .materials  import PolymerProps, MU_WATER
 
 @dataclass
 class ConicalStageSpec:
-    """Geometry and operating parameters for one conical capture stage."""
+    """Geometry and operating parameters for one conical capture stage.
+
+    bed_depth_m:
+        Optional override for the RT deep-bed formula bed length.
+        None (default) → use slant_length_m (correct for woven mesh cone wall
+        where particles traverse many collector contacts along the slant).
+        Set to mesh.d_c_m for single-screen stages (membrane, flat screen) where
+        each particle contacts at most one collector layer.
+
+        Physical rationale:
+            Deep-bed formula:  E = 1 − exp(−4 α η₀ L / (π d_c))
+            For L = slant_length_m and d_c = 1.5 µm: L/d_c ≈ 27 000 → always saturated.
+            For L = d_c (single screen): L/d_c = 1 → physically correct single-layer capture.
+    """
     label: str
     mesh: MeshSpec
     dep: DEPConfig
@@ -41,6 +54,7 @@ class ConicalStageSpec:
     D_tip_m: float          # apex diameter [m]
     L_cone_m: float         # axial length of cone section [m]
     half_angle_deg: float = field(init=False)
+    bed_depth_m: float | None = None  # None → slant_length_m; d_c_m → single-screen
 
     def __post_init__(self) -> None:
         r_in  = self.D_in_m  / 2.0
@@ -109,7 +123,8 @@ def stage_capture(
         H=polymer.hamaker_J,
         T_K=T_K,
     )
-    eta_RT = stage_capture_efficiency(rt["eta_0"], stage.mesh, stage.slant_length_m)
+    eff_bed = stage.bed_depth_m if stage.bed_depth_m is not None else stage.slant_length_m
+    eta_RT = stage_capture_efficiency(rt["eta_0"], stage.mesh, eff_bed)
 
     # nDEP capture probability
     r_m    = d_p_m / 2.0
