@@ -133,7 +133,11 @@ def init_truth_state() -> TruthState:
 def init_sensor_state() -> SensorState:
     return SensorState(
         data={
-            "sensor_turbidity": 0.0,
-            "sensor_scatter":   0.0,
+            "sensor_turbidity":  0.0,
+            "sensor_scatter":    0.0,
+            # M6 Phase 1: physical sensors — initialized at 0.0 so downstream consumers
+            # never read undefined keys before the first sensor update.
+            "dp_sensor_kPa":    0.0,   # differential pressure sensor (MEMS) [kPa]
+            "flow_sensor_lmin": 0.0,   # flow rate sensor (electromagnetic) [L/min]
         }
     )

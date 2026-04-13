@@ -211,3 +211,19 @@ reward:
   w_fouling_penalty: 0.5   # linear penalty above 40% average fouling
   w_bypass_penalty: 0.3    # penalty for unfiltered bypass flow
   w_backflush_cost: 0.1    # per-timestep cost while backflush pulse is active
+
+# ---------------------------------------------------------------------------
+# Sensors — M6 Phase 1: physical sensor models
+# All values are source-grounded defaults from M6 Sensor Realism Research Brief
+# (docs/orchestration/M6_Foundation/M6_sensor_realism_research_brief.md).
+# ---------------------------------------------------------------------------
+sensors:
+  pressure:
+    dp_noise_kPa: 0.25               # MEMS DP noise floor (~0.5% FS, 0-50 kPa range)
+    dp_drift_rate_kPa_per_step: 0.0005  # random walk drift per 0.1s step (calibration-pending)
+    dp_drift_max_kPa: 2.0            # drift accumulation cap (conservative bound)
+    dp_fouling_gain: 0.5             # sensor port fouling bias proportional to mesh_loading_avg (calibration-pending)
+    dp_latency_steps: 1              # 1-step observation lag (~100 ms; physically realistic for MEMS)
+  flow:
+    flow_noise_frac: 0.01            # multiplicative noise fraction (1% reading; mag meter +/-0.5-1%)
+    flow_bias_std_lmin: 0.2          # std dev of per-episode factory calibration offset [L/min]

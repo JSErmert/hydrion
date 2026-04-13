@@ -12,6 +12,8 @@ from .physics.clogging import CloggingModel
 from .physics.electrostatics import ElectrostaticsModel
 from .physics.particles import ParticleModel
 from .sensors.optical import OpticalSensorArray
+from .sensors.pressure import DifferentialPressureSensor
+from .sensors.flow import FlowRateSensor
 
 # Commit 1 v1.5 imports
 from .runtime.run_context import RunContext
@@ -97,7 +99,9 @@ class HydrionEnv(gym.Env):
         self.clogging      = CloggingModel(self.cfg)
         self.electrostatics = ElectrostaticsModel(self.cfg)
         self.particles     = ParticleModel(self.cfg)
-        self.sensors       = OpticalSensorArray(self.cfg)
+        self.sensors          = OpticalSensorArray(self.cfg)
+        self.pressure_sensor  = DifferentialPressureSensor(self.cfg)   # M6 Phase 1
+        self.flow_sensor      = FlowRateSensor(self.cfg)               # M6 Phase 1
 
         # Commit 3: explicit truth/sensor state containers
         self.truth_state:  dict = {}
@@ -212,6 +216,8 @@ class HydrionEnv(gym.Env):
 
         # Sensor reset writes to sensor_state (and mirrors to truth for compatibility)
         self.sensors.reset(self.truth_state, sensor_state=self.sensor_state)
+        self.pressure_sensor.reset(self.truth_state, sensor_state=self.sensor_state)  # M6 Phase 1
+        self.flow_sensor.reset(self.truth_state, sensor_state=self.sensor_state)      # M6 Phase 1
 
         # Neutral kick to initialize derived values
         neutral = np.array([0.5, 0.5, 0.0, 0.5], dtype=np.float32)
@@ -225,6 +231,8 @@ class HydrionEnv(gym.Env):
             electrostatics_model=self.electrostatics,
         )
         self.sensors.update(self.truth_state, dt=self.dt, sensor_state=self.sensor_state)
+        self.pressure_sensor.update(self.truth_state, self.sensor_state, dt=self.dt)  # M6 Phase 1
+        self.flow_sensor.update(self.truth_state, self.sensor_state, dt=self.dt)      # M6 Phase 1
 
         self._update_normalized_state()
         return self._observe(), {}
@@ -267,6 +275,8 @@ class HydrionEnv(gym.Env):
             electrostatics_model=self.electrostatics,
         )
         self.sensors.update(self.truth_state, dt=self.dt, sensor_state=self.sensor_state)
+        self.pressure_sensor.update(self.truth_state, self.sensor_state, dt=self.dt)  # M6 Phase 1
+        self.flow_sensor.update(self.truth_state, self.sensor_state, dt=self.dt)      # M6 Phase 1
 
         self._update_normalized_state()
 
@@ -322,8 +332,10 @@ class HydrionEnv(gym.Env):
             "E_field_norm":     float(self.truth_state.get("E_field_norm",     0.0)),
             "capture_eff_part": float(self.truth_state.get("particle_capture_eff", 0.0)),
             # Sensors
-            "sensor_turbidity": float(self.sensor_state.get("sensor_turbidity", 0.0)),
-            "sensor_scatter":   float(self.sensor_state.get("sensor_scatter",   0.0)),
+            "sensor_turbidity":  float(self.sensor_state.get("sensor_turbidity",  0.0)),
+            "sensor_scatter":    float(self.sensor_state.get("sensor_scatter",    0.0)),
+            "dp_sensor_kPa":    float(self.sensor_state.get("dp_sensor_kPa",    0.0)),   # M6
+            "flow_sensor_lmin": float(self.sensor_state.get("flow_sensor_lmin", 0.0)),   # M6
             # Run identity
             "run_id":       self.run_context.run_id,
             "version":      self.run_context.version,
@@ -363,8 +375,10 @@ class HydrionEnv(gym.Env):
             "bf_burst_elapsed":      float(self.truth_state.get("bf_burst_elapsed",      0.0)),
             "bf_cooldown_remaining": float(self.truth_state.get("bf_cooldown_remaining", 0.0)),
             # Sensors
-            "sensor_turbidity": float(self.sensor_state.get("sensor_turbidity", 0.0)),
-            "sensor_scatter":   float(self.sensor_state.get("sensor_scatter",   0.0)),
+            "sensor_turbidity":  float(self.sensor_state.get("sensor_turbidity",  0.0)),
+            "sensor_scatter":    float(self.sensor_state.get("sensor_scatter",    0.0)),
+            "dp_sensor_kPa":    float(self.sensor_state.get("dp_sensor_kPa",    0.0)),   # M6
+            "flow_sensor_lmin": float(self.sensor_state.get("flow_sensor_lmin", 0.0)),   # M6
         })
 
         if terminated or truncated:
