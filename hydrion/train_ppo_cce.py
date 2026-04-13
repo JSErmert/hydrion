@@ -16,7 +16,8 @@ Saves:
 Checkpoints every 10k steps to checkpoints/cce/
 
 Run from repo root:
-    python -m hydrion.train_ppo_cce
+    python -m hydrion.train_ppo_cce                  # 500k steps (default)
+    python -m hydrion.train_ppo_cce --steps 100000   # proof-of-concept run
 """
 
 import json
@@ -80,6 +81,13 @@ def make_env(seed: int = 0):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Train PPO on ConicalCascadeEnv (M5 physics)")
+    parser.add_argument("--steps", type=int, default=500_000,
+                        help="Total training timesteps (default: 500000)")
+    args = parser.parse_args()
+    total_timesteps = args.steps
+
     _set_global_seeds(_TRAIN_SEED)
     os.makedirs("models",          exist_ok=True)
     os.makedirs("checkpoints/cce", exist_ok=True)
@@ -97,6 +105,7 @@ def main():
     tensorboard_log = f"./runs/{run_name}"
 
     print(f"\nStarting PPO training on ConicalCascadeEnv (M5 physics)...")
+    print(f"Steps:           {total_timesteps:,}")
     print(f"TensorBoard log: {tensorboard_log}")
     print(f"Checkpoints:     checkpoints/cce/")
     print(f"Final model:     models/ppo_cce_v1.zip\n")
@@ -125,7 +134,7 @@ def main():
     )
 
     model.learn(
-        total_timesteps=500_000,
+        total_timesteps=total_timesteps,
         callback=checkpoint_cb,
         progress_bar=True,
     )
@@ -140,7 +149,7 @@ def main():
             "obs_schema":      _OBS_SCHEMA,
             "action_schema":   "act4_v1",
             "train_seed":      _TRAIN_SEED,
-            "total_timesteps": 500_000,
+            "total_timesteps": total_timesteps,
             "reward_version":  "phase1_v1",
         }, f, indent=2)
 
