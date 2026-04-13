@@ -216,7 +216,7 @@ def evaluate(
     rand_stats = _run_random_episodes(n_episodes, seed=300)
 
     # ── Sensor channel diagnostics ─────────────────────────────────────────
-    print(f"\n{'─'*68}")
+    print(f"\n{'-'*68}")
     print(f"Sensor channel diagnostics (obs values are VecNormalize-normalized):")
     print(f"  obs[12] (flow_sensor_norm):  mean={ppo_stats['obs12_global_mean']:.4f}  "
           f"std={ppo_stats['obs12_global_std']:.4f}")
@@ -238,14 +238,14 @@ def evaluate(
     # ── Summary ───────────────────────────────────────────────────────────
     print(f"\n{'='*68}")
     print(f"{'Metric':<32} {'PPO':>12} {'Random':>12}")
-    print(f"{'─'*68}")
+    print(f"{'-'*68}")
     print(f"  {'Mean return':<30} {ppo_stats['mean_return']:>12.3f} "
           f"{rand_stats['mean_return']:>12.3f}")
     print(f"  {'Std return':<30} {ppo_stats['std_return']:>12.3f} "
           f"{rand_stats['std_return']:>12.3f}")
     print(f"  {'Mean ep length':<30} {ppo_stats['mean_ep_length']:>12.1f} "
           f"{rand_stats['mean_ep_length']:>12.1f}")
-    print(f"  {'Mean violations':<30} {ppo_stats['mean_violations']:>12.1f} {'—':>12}")
+    print(f"  {'Mean violations':<30} {ppo_stats['mean_violations']:>12.1f} {'N/A':>12}")
     print(f"{'='*68}")
 
     print(f"\nAcceptance criteria checks:")

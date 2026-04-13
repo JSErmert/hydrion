@@ -1,0 +1,17 @@
+{
+  "obs_schema": "obs14_v1",
+  "action_schema": "act4_v1",
+  "env": "HydrionEnv",
+  "train_seed": 42,
+  "total_timesteps": 500000,
+  "reward_version": "phase1_v1",
+  "d_p_um": 1.0,
+  "benchmark_regime": "submicron",
+  "truth_channels": "0-9 (privileged \u2014 not available at hardware deployment)",
+  "sensor_channels": "10-13 (noisy partial observations)",
+  "noise_params_status": "calibration-pending placeholders (dp_drift_rate, dp_fouling_gain)",
+  "domain_randomization": "none \u2014 deferred to post-calibration",
+  "delay_handling": "implicit MLP (1-step dp_sensor latency)",
+  "deployment_ready": false,
+  "note": "First canonical HydrionEnv baseline under obs14_v1. Truth channels 0-9 are privileged training inputs not available at hardware deployment. Calibration-pending noise parameters. Not comparable to ppo_cce_v2 (different environment, physics, reward, schema)."
+}
