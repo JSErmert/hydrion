@@ -25,7 +25,7 @@ from .logging.writer import RunLogger
 
 # Commit 3 v1.5 imports
 from .state.init import init_truth_state, init_sensor_state
-from .sensors.sensor_fusion import build_observation
+from .sensors.sensor_fusion import build_observation, build_observation_obs8
 
 
 class HydrionEnv(gym.Env):
@@ -57,8 +57,17 @@ class HydrionEnv(gym.Env):
         seed: int | None = None,
         noise_enabled: bool | None = None,
         auto_reset: bool = True,
+        obs_schema: str = "obs14_v1",
     ):
         super().__init__()
+        _VALID_SCHEMAS = {"obs14_v1": 14, "obs8_deployment_v1": 8}
+        if obs_schema not in _VALID_SCHEMAS:
+            raise ValueError(
+                f"Unknown obs_schema '{obs_schema}'. "
+                f"Valid schemas: {list(_VALID_SCHEMAS.keys())}"
+            )
+        self.obs_schema = obs_schema
+        _obs_dim = _VALID_SCHEMAS[obs_schema]
         self.render_mode = render_mode
 
         # Load YAML config
@@ -163,8 +172,8 @@ class HydrionEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # Observation space (14-D, schema obs14_v1 — M6.2B — 2026-04-13)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(14,), dtype=np.float32)
+        # Observation space (obs14_v1: 14-D default; obs8_deployment_v1: 8-D — M8 — 2026-04-14)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(_obs_dim,), dtype=np.float32)
 
         self.steps = 0
         if auto_reset:
@@ -470,6 +479,8 @@ class HydrionEnv(gym.Env):
         )
 
     def _observe(self) -> np.ndarray:
+        if self.obs_schema == "obs8_deployment_v1":
+            return build_observation_obs8(self.truth_state, self.sensor_state)
         # obs14_v1 — sensor-extended observation contract (M6.2B — 2026-04-13)
         return build_observation(self.truth_state, self.sensor_state)
 

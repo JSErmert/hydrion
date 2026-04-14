@@ -73,3 +73,54 @@ def build_observation(truth: dict, sensors: dict) -> np.ndarray:
         ],
         dtype=np.float32,
     )
+
+
+def build_observation_obs8(truth: dict, sensors: dict) -> np.ndarray:
+    """
+    obs8_deployment_v1 — deployment-realistic 8D observation contract.
+
+    Retains only channels available at hardware deployment:
+        - actuator_feedback channels (obs14_v1 indices 6–9, re-indexed 0–3)
+        - sensor_derived channels    (obs14_v1 indices 10–13, re-indexed 4–7)
+
+    Removed: obs14_v1 indices 0–5 (physics_truth — simulation-only quantities).
+
+    Index mapping (obs8_deployment_v1):
+        0  valve_cmd         truth_state    actuator command (obs14_v1 index 6)
+        1  pump_cmd          truth_state    actuator command (obs14_v1 index 7)
+        2  bf_cmd            truth_state    actuator command (obs14_v1 index 8)
+        3  node_voltage_cmd  truth_state    actuator command (obs14_v1 index 9)
+        4  sensor_turbidity  sensor_state   optical turbidity (obs14_v1 index 10)
+        5  sensor_scatter    sensor_state   optical scatter   (obs14_v1 index 11)
+        6  flow_sensor_norm  sensor_state   flow_sensor_lmin / 20.0, clip [0,1] (obs14_v1 index 12)
+        7  dp_sensor_norm    sensor_state   dp_sensor_kPa / 80.0, clip [0,1]   (obs14_v1 index 13)
+
+    Schema version: obs8_deployment_v1 (M8 — 2026-04-14)
+    This schema is deployment-realistic, NOT sensor-only.
+    Indices 0–3 are actuator command feedback (controller-generated, always self-known).
+    Indices 4–7 are sensor-derived (hardware-measurable).
+
+    Source traceability: M8.1R.4_sources_map.md S1 (POMDP self-knowledge),
+    S4 (action history), S5 (asymmetric actor-critic deployment obs).
+
+    DO NOT change index ordering without bumping the schema version label.
+    obs14_v1 is preserved in build_observation() — these are parallel functions.
+    """
+    return np.array(
+        [
+            # actuator_feedback channels (controller-issued, always deployment-available)
+            float(truth.get("valve_cmd",         0.0)),
+            float(truth.get("pump_cmd",          0.0)),
+            float(truth.get("bf_cmd",            0.0)),
+            float(truth.get("node_voltage_cmd",  0.0)),
+
+            # sensor_derived channels (hardware-measurable)
+            float(sensors.get("sensor_turbidity", 0.0)),
+            float(sensors.get("sensor_scatter",   0.0)),
+
+            # hydraulic sensors — same normalization as obs14_v1 indices 12 and 13
+            float(np.clip(sensors.get("flow_sensor_lmin", 0.0) / 20.0, 0.0, 1.0)),
+            float(np.clip(sensors.get("dp_sensor_kPa",   0.0) / 80.0, 0.0, 1.0)),
+        ],
+        dtype=np.float32,
+    )
