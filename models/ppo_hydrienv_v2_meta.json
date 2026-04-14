@@ -1,0 +1,109 @@
+{
+  "obs_schema": "obs8_deployment_v1",
+  "obs_dim": 8,
+  "action_schema": "act4_v1",
+  "env": "HydrionEnv",
+  "train_seed": 42,
+  "total_timesteps": 360000,
+  "reward_version": "phase1_v1",
+  "d_p_um": 1.0,
+  "benchmark_regime": "submicron",
+  "deployment_ready": false,
+  "comparison_type": "cross-schema deployment-gap measurement",
+  "cross_schema_comparison_target": "ppo_hydrienv_v1 (obs14_v1, 14D)",
+  "calibration_status": "calibration-pending placeholders (dp_drift_rate, dp_fouling_gain, flow_calibration_bias_std). M8 results are internally valid under these parameters; predictive value for hardware deployment is bounded by the uncalibrated sensor model.",
+  "channel_taxonomy": {
+    "0": {
+      "obs14_v1_index": 6,
+      "name": "valve_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "1": {
+      "obs14_v1_index": 7,
+      "name": "pump_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "2": {
+      "obs14_v1_index": 8,
+      "name": "bf_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "3": {
+      "obs14_v1_index": 9,
+      "name": "node_voltage_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "4": {
+      "obs14_v1_index": 10,
+      "name": "sensor_turbidity",
+      "class": "sensor_derived",
+      "deployment_available": true
+    },
+    "5": {
+      "obs14_v1_index": 11,
+      "name": "sensor_scatter",
+      "class": "sensor_derived",
+      "deployment_available": true
+    },
+    "6": {
+      "obs14_v1_index": 12,
+      "name": "flow_sensor_norm",
+      "class": "sensor_derived",
+      "deployment_available": true
+    },
+    "7": {
+      "obs14_v1_index": 13,
+      "name": "dp_sensor_norm",
+      "class": "sensor_derived",
+      "deployment_available": true
+    }
+  },
+  "removed_channels": {
+    "obs14_v1_0": {
+      "name": "flow",
+      "class": "physics_truth",
+      "deployment_available": false
+    },
+    "obs14_v1_1": {
+      "name": "pressure",
+      "class": "physics_truth",
+      "deployment_available": false
+    },
+    "obs14_v1_2": {
+      "name": "clog",
+      "class": "physics_truth",
+      "deployment_available": false
+    },
+    "obs14_v1_3": {
+      "name": "E_field_norm",
+      "class": "physics_truth",
+      "deployment_available": false
+    },
+    "obs14_v1_4": {
+      "name": "C_out",
+      "class": "physics_truth",
+      "deployment_available": false
+    },
+    "obs14_v1_5": {
+      "name": "particle_capture_eff",
+      "class": "physics_truth",
+      "deployment_available": false
+    }
+  },
+  "confounds": [
+    "calibration-pending sensor noise (dp_drift_rate, dp_fouling_gain, flow_calibration_bias_std are placeholders)",
+    "single training seed (seed=42 \u2014 no cross-seed variance estimate)",
+    "500k step training budget (may be insufficient to fully exploit obs8 signals)"
+  ],
+  "methodology_validity_conditions": {
+    "MVC-1": "Fresh VecNormalize fit \u2014 ppo_hydrienv_v1_vecnorm.pkl was NOT used",
+    "MVC-2": "Matched conditions \u2014 identical PPO hyperparameters, episode length, ShieldedEnv config, seed",
+    "MVC-3": "Calibration confound named in calibration_status field",
+    "MVC-4": "Comparison framed as cross-schema deployment-gap measurement"
+  },
+  "note": "M8 deployment-gap comparison artifact. Trains on deployment-realistic obs8_deployment_v1 (actuator feedback + sensor channels only). Compared against ppo_hydrienv_v1 (obs14_v1) to quantify the performance cost of removing physics-truth channels. Does NOT replace ppo_hydrienv_v1. Result interpretation: see M8.3_execution_document.md Section 9."
+}
