@@ -1,0 +1,126 @@
+{
+  "obs_schema": "obs8_deployment_v1",
+  "obs_dim": 8,
+  "action_schema": "act4_v1",
+  "env": "HydrionEnv",
+  "config_path": "configs/m9_calibrated.yaml",
+  "train_seed": 42,
+  "total_timesteps": 500000,
+  "reward_version": "phase1_v1",
+  "deployment_ready": false,
+  "calibration_note": "M9 calibrated artifact. Sensor noise parameters grounded against piezoresistive DP transmitter (Rosemount 3051 class, MEMS bound), ISO 7027 nephelometric turbidity sensor (Hanna HI88713, E+H CUS52D). See M9.1R.3 verified source brief and M9.1R.4 sources map for full provenance.",
+  "calibrated_parameters": {
+    "dp_drift_rate_kPa_per_step": {
+      "value": 1.27e-06,
+      "old": 0.0005,
+      "source": "S1-S4",
+      "confidence": "HIGH"
+    },
+    "dp_drift_max_kPa": {
+      "value": 0.4,
+      "old": 2.0,
+      "source": "S3",
+      "confidence": "HIGH"
+    },
+    "dp_fouling_gain": {
+      "value": 0.02,
+      "old": 0.5,
+      "source": "S7-S9",
+      "confidence": "MEDIUM"
+    },
+    "turbidity_noise_std": {
+      "value": 0.02,
+      "old": 0.01,
+      "source": "S5,S6",
+      "confidence": "HIGH"
+    },
+    "scatter_noise_std": {
+      "value": 0.02,
+      "old": 0.01,
+      "source": "S5,S6,S10",
+      "confidence": "HIGH"
+    }
+  },
+  "device_classes": {
+    "dp_sensor": "Piezoresistive differential pressure transmitter (MEMS class, 0-80 kPa)",
+    "flow_meter": "Electromagnetic (mag) flow meter (0-20 L/min, dirty-water service)",
+    "turbidity": "ISO 7027 nephelometric turbidity sensor (90deg / 860 nm)",
+    "scatter": "ISO 7027 nephelometric (secondary scatter channel)",
+    "camera": "DEFERRED \u2014 no device class committed"
+  },
+  "provenance_references": {
+    "S1": "Rosemount 3051 Product Data Sheet (Emerson)",
+    "S3": "MEMS Vision DP sensor specifications",
+    "S5": "Hanna Instruments HI88713 ISO 7027 turbidimeter",
+    "S6": "Endress+Hauser Turbimax CUS52D",
+    "S7": "Control Global \u2014 pressure transmitter installation practice",
+    "S10": "ISO 7027-1:2016"
+  },
+  "channel_taxonomy": {
+    "0": {
+      "obs14_v1_index": 6,
+      "name": "valve_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "1": {
+      "obs14_v1_index": 7,
+      "name": "pump_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "2": {
+      "obs14_v1_index": 8,
+      "name": "bf_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "3": {
+      "obs14_v1_index": 9,
+      "name": "node_voltage_cmd",
+      "class": "actuator_feedback",
+      "deployment_available": true
+    },
+    "4": {
+      "obs14_v1_index": 10,
+      "name": "sensor_turbidity",
+      "class": "sensor_derived",
+      "deployment_available": true,
+      "noise_calibrated": true
+    },
+    "5": {
+      "obs14_v1_index": 11,
+      "name": "sensor_scatter",
+      "class": "sensor_derived",
+      "deployment_available": true,
+      "noise_calibrated": true
+    },
+    "6": {
+      "obs14_v1_index": 12,
+      "name": "flow_sensor_norm",
+      "class": "sensor_derived",
+      "deployment_available": true,
+      "noise_calibrated": false,
+      "note": "already grounded M6"
+    },
+    "7": {
+      "obs14_v1_index": 13,
+      "name": "dp_sensor_norm",
+      "class": "sensor_derived",
+      "deployment_available": true,
+      "noise_calibrated": true
+    }
+  },
+  "confounds": [
+    "Single training seed (seed=42 \u2014 no cross-seed variance estimate)",
+    "M4 phenomenological physics layer (Layer A) \u2014 M5 grounded physics not integrated",
+    "Optical gain coefficients are placeholder design weights (NTU-to-mass mapping not grounded)",
+    "Camera sensor not grounded (deferred)"
+  ],
+  "calibration_pending_items": [
+    "NTU-to-microplastic-mass mapping (requires experimental correlation)",
+    "Camera device class selection and noise grounding",
+    "Multiplicative vs additive noise model architecture",
+    "M5 physics integration into production loop"
+  ]
+}
