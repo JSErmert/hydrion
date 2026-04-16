@@ -1,0 +1,22 @@
+{
+  "obs_schema": "obs8_deployment_v1",
+  "obs_dim": 8,
+  "config_path": "configs/m9_calibrated.yaml",
+  "train_seed": 42,
+  "total_timesteps": 1000000,
+  "m96_config": "B",
+  "m96_label": "Stability + Data",
+  "hyperparameters": {
+    "learning_rate": 3e-05,
+    "clip_range": 0.1,
+    "batch_size": 256,
+    "n_epochs": 20,
+    "n_steps": 2048,
+    "gae_lambda": 0.95,
+    "gamma": 0.99,
+    "ent_coef": 0.01
+  },
+  "training_time_seconds": 2077.6,
+  "deployment_ready": false,
+  "note": "M9.6 training stability recovery \u2014 Config B"
+}
