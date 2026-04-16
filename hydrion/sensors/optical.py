@@ -51,10 +51,8 @@ class OpticalSensorArray:
         sensor_scatter    in [0, 1]
         sensor_camera     in [0, 1]
 
-    Backwards compatible:
-    - If sensor_state is None, writes into truth_state as before.
-    - Additionally mirrors measurements into truth_state even when sensor_state is provided
-      (temporary compatibility shim; remove in a later commit once consumers are migrated).
+    If sensor_state is None, writes into truth_state (legacy path).
+    If sensor_state is provided, writes only to sensor_state (M6+ path).
     """
 
     def __init__(self, cfg: Any | None = None) -> None:
@@ -90,10 +88,6 @@ class OpticalSensorArray:
         target["sensor_scatter"] = 0.0
         target["sensor_camera"] = 0.0
 
-        # Compatibility mirror (can be removed later)
-        truth_state["sensor_turbidity"] = 0.0
-        truth_state["sensor_scatter"] = 0.0
-        truth_state["sensor_camera"] = 0.0
 
     def update(
         self,
@@ -141,7 +135,3 @@ class OpticalSensorArray:
         target["sensor_scatter"] = scatter
         target["sensor_camera"] = camera
 
-        # Compatibility mirror (temporary)
-        truth_state["sensor_turbidity"] = turbidity
-        truth_state["sensor_scatter"] = scatter
-        truth_state["sensor_camera"] = camera

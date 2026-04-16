@@ -1,0 +1,235 @@
+sim:
+  dt: 0.1
+
+# ---------------------------------------------------------------------------
+# Flow operating envelope (locked system constraints)
+# ---------------------------------------------------------------------------
+flow_envelope:
+  Q_low_Lmin:         5.0
+  Q_nominal_min_Lmin: 12.0
+  Q_nominal_max_Lmin: 15.0
+  Q_peak_Lmin:        20.0
+
+# ---------------------------------------------------------------------------
+# Stage geometry (locked system constraints)
+# ---------------------------------------------------------------------------
+stage_geometry:
+  area_s1_cm2: 120.0   # coarse mesh ~500 µm
+  area_s2_cm2: 220.0   # medium mesh ~100 µm
+  area_s3_cm2: 900.0   # fine pleated ~5 µm equivalent (dominant clog region)
+
+# ---------------------------------------------------------------------------
+# Hydraulics
+# ---------------------------------------------------------------------------
+hydraulics:
+  Q_max_Lmin: 20.0      # normalization reference = peak flow
+  P_max_Pa: 80000.0
+  R_pipe: 2.0e7
+  R_valve_min: 0.5e7
+  R_valve_max: 8.0e7
+  R_m1_base: 1.0e7
+  R_m2_base: 2.0e7
+  R_m3_base: 4.0e7
+  # R3 fix: k values encode pore-size-dependent fouling sensitivity directly.
+  # No area normalization applied in code (see hydraulics.py R3 fix comment).
+  # Physical ordering: fine mesh (5 µm) >> medium (100 µm) >> coarse (500 µm).
+  # At 30% fouling: dp_s3 ≈ 13× dp_s1; at 50% fouling: dp_s3 ≈ 9.5× dp_s1.
+  k_m1_clog: 2.0e7    # coarse 500 µm — low resistance increase per unit fouling
+  k_m2_clog: 8.0e7    # medium 100 µm
+  k_m3_clog: 3.0e8    # fine 5 µm pleated — dominant fouling resistance
+  bf_flow_penalty: 0.8
+  min_Q_Lmin: 0.0
+  max_Q_Lmin: 20.0   # FIXED: was 50.0 — must equal Q_max_Lmin to prevent flow > 1.0 in obs
+
+# ---------------------------------------------------------------------------
+# Bypass (passive pressure-relief valve)
+# ---------------------------------------------------------------------------
+bypass:
+  bypass_pressure_threshold_pa: 65000.0   # ~81% of P_max_Pa — activates before hard safety limit
+  bypass_flow_fraction: 0.30              # fraction of Q_in diverted around filter when active
+  bypass_hysteresis_fraction: 0.90        # deactivation threshold = threshold × this; prevents oscillation
+
+# ---------------------------------------------------------------------------
+# Clogging — decomposed fouling model
+# ---------------------------------------------------------------------------
+clogging:
+  # Aggregate capacity per stage (kept for Mc* compatibility fields)
+  Mc1_max: 1.0
+  Mc2_max: 1.0
+  Mc3_max: 1.0
+
+  # Core deposition dynamics
+  dep_base: 1.0e-3       # baseline deposition coefficient [AU / (L/min · s)]
+  dep_exponent: 1.0      # nonlinear exponent. FIXED (M1.5):
+                         #   =2 → bistable; filter won't foul from clean reset.
+                         #   =1 → monotone growth from zero; restores RL training viability.
+  dep_floor: 0.05        # minimum effective fouling_frac used in deposition term.
+                         #   Prevents clean-state zero fixed point when dep_exponent=1.
+                         #   Physically: constant nucleation/arrival rate even on clean media.
+  shear_coeff: 5.0e-3    # passive shear removal coefficient [1/s]
+  shear_Q_ref: 15.0      # reference flow for shear scaling [L/min]
+  eps: 1.0e-8
+
+  # Per-stage deposition rate multipliers (relative to dep_base)
+  # Physical basis: Stage 3 (fine pleated, large area) is the dominant clog location.
+  # Values are first-pass estimates — re-tune against lab data as available.
+  dep_rate_s1: 0.5    # coarse mesh — large debris, slower per-step accumulation
+  dep_rate_s2: 0.8    # medium mesh
+  dep_rate_s3: 1.5    # fine mesh — fastest clogging
+
+  # Fouling component weights per stage (must sum to 1.0 per stage)
+  # Stage 1: bridge-dominant (fibers entangle at coarse mesh)
+  cake_weight_s1:   0.20
+  bridge_weight_s1: 0.60
+  pore_weight_s1:   0.20
+  # Stage 2: bridge + pore
+  cake_weight_s2:   0.30
+  bridge_weight_s2: 0.45
+  pore_weight_s2:   0.25
+  # Stage 3: cake-dominant (fine pleated surface — surface loading)
+  cake_weight_s3:   0.55
+  bridge_weight_s3: 0.25
+  pore_weight_s3:   0.20
+
+  # Maintenance and irreversible fouling (70% threshold = locked system constraint)
+  maintenance_fouling_threshold: 0.70   # above this: maintenance_required flag activates
+  irreversible_stress_threshold: 0.70   # above this: irreversible accumulation begins
+  irreversible_rate: 0.05               # fraction of new deposition becoming irreversible above threshold
+
+  # Capture efficiency curve (YAML-parameterized per implementation guardrail)
+  # Equation: baseline + gain × n × (1 - n)^exponent, clipped to [floor, ceiling]
+  # Non-monotonic: peaks near moderate fouling, softens near saturation (flow collapse dominates)
+  capture_eff_baseline:  0.80
+  capture_eff_gain:      0.12
+  capture_eff_exponent:  0.50
+  capture_eff_floor:     0.30
+  capture_eff_ceiling:   0.98
+
+# ---------------------------------------------------------------------------
+# Fouling — backflush recovery coefficients
+# ---------------------------------------------------------------------------
+fouling:
+  # Per-component recovery fraction per pulse (relative to clean-water source = 1.0)
+  # Values represent fraction of recoverable loading removed per active-pulse timestep
+  # normalized over pulse_duration_s.
+  bf_cake_recovery:   0.35   # surface cake — most recoverable
+  bf_bridge_recovery: 0.20   # fiber bridge — partial recovery
+  bf_pore_recovery:   0.08   # pore restriction — least recoverable
+
+  # Diminishing returns: each successive burst recovers × this factor of the previous burst
+  bf_diminishing_factor: 0.80
+
+# ---------------------------------------------------------------------------
+# Backflush event parameters (locked system constraints)
+# ---------------------------------------------------------------------------
+backflush:
+  n_pulses:           3
+  pulse_duration_s:   0.4
+  interpulse_s:       0.25
+  cooldown_s:         9.0     # midpoint of 8–10 s locked range
+  trigger_threshold:  0.30    # bf_cmd must exceed this to initiate a burst
+  effluent_cleaning_efficiency: 0.70   # autonomous mode cleaning efficiency; clean water = 1.0
+
+# ---------------------------------------------------------------------------
+# Particle model (optional PSD + fiber fraction)
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Electrostatics
+# ---------------------------------------------------------------------------
+# Electrostatics — M3: radial field model (obs12_v2)
+# ---------------------------------------------------------------------------
+electrostatics:
+  # Voltage bounds (locked — 06_LOCKED_SYSTEM_CONSTRAINTS.md §D)
+  V_max_realism:  2500.0    # [V]   upper operational bound; node_cmd=1.0 maps here
+  V_hard_clamp:   3000.0    # [V]   absolute safety ceiling — system must never exceed
+
+  # First-order voltage dynamics
+  tau_charge:     0.5       # [s]   time constant to reach commanded voltage
+  leak_rate:      0.1       # [1/s] passive voltage decay when command drops
+
+  # Radial geometry — concentric cylindrical capacitor (M3 grounding)
+  # Physical basis: counter-electrode = central rod; collection wall = outer cylinder
+  # E_r(r_outer) = V / (r_outer x ln(r_outer / r_inner))
+  r_inner_m:      0.005     # [m]   counter-electrode (central rod) radius — placeholder
+  r_outer_m:      0.040     # [m]   outer collection wall radius — placeholder
+
+  # Residence time model (shared by ring + node subsystems)
+  t_E_ref_s:      2.0       # [s]   residence time at which tanh -> 0.76 (saturation reference)
+  stage_volume_L: 0.25      # [L]   effective stage volume — placeholder; bench calibration target
+
+  # InletPolarizationRing — upstream charge conditioning (30% contribution)
+  V_ring_ref:     500.0     # [V]   ring conditioning voltage reference (ring tanh -> 0.76)
+  ring_weight:    0.30      # []    locked allocation — 06_LOCKED_SYSTEM_CONSTRAINTS.md §D
+
+  # OuterWallCollectorNode — radial field primary capture (70% contribution)
+  node_weight:    0.70      # []    locked allocation — 06_LOCKED_SYSTEM_CONSTRAINTS.md §D
+
+# ---------------------------------------------------------------------------
+# Particle model — M4: density classification, Stokes settling, per-stage capture
+# ---------------------------------------------------------------------------
+particles:
+  C_in_base: 0.7
+
+  # Density classification (locked §E — dense-phase scope, Option A)
+  dense_fraction:   0.70    # PET, PA, PVC, biofilm-coated — primary capture target
+  neutral_fraction: 0.15    # weathered, transitional fragments
+  buoyant_fraction: 0.15    # PP, PE — pass-through, tracked not captured
+
+  # Stokes settling — dense particle geometry and fluid properties
+  stage_height_m:   0.05    # [m] representative stage height — placeholder
+  rho_dense_kgm3:   1380.0  # PET reference density [kg/m³]
+  rho_water_kgm3:   1000.0  # water at ~20°C [kg/m³]
+  mu_water_Pas:     1.0e-3  # dynamic viscosity [Pa·s]
+
+  # Per-stage fouling coupling to capture efficiency
+  fouling_gain_s1:  0.15    # Stage 1 (500 µm coarse mesh)
+  fouling_gain_s2:  0.20    # Stage 2 (100 µm medium mesh)
+  fouling_gain_s3:  0.10    # Stage 3 (5 µm fine pleated)
+
+  # Stage 3 flow-rate penalty (exp(-coeff × max(Q - onset, 0)))
+  s3_flow_penalty_coeff: 0.04   # penalty rate coefficient
+  s3_flow_onset_lmin:    10.0   # [L/min] penalty onset threshold
+
+  # eta_nominal reference conditions (locked §G — do not change without versioning)
+  eta_ref_d_um:     10.0    # [µm] reference particle diameter
+  eta_ref_Q_lmin:   13.5    # [L/min] reference flow rate (mid-nominal envelope)
+
+  psd:
+    enabled: false
+    mode: hybrid
+  shape:
+    enabled: false
+    fiber_fraction: 1.0
+
+# ---------------------------------------------------------------------------
+# Reward (Milestone 1 — hydraulic/fouling benchmarking priority)
+# Do NOT use maintenance_required in reward; keep reward continuous.
+# ---------------------------------------------------------------------------
+reward:
+  w_processed_flow: 2.0    # reward processed throughput (not bypass flow)
+  w_pressure_penalty: 1.0  # quadratic penalty above 50% normalized pressure
+  w_fouling_penalty: 0.5   # linear penalty above 40% average fouling
+  w_bypass_penalty: 0.3    # penalty for unfiltered bypass flow
+  w_backflush_cost: 0.1    # per-timestep cost while backflush pulse is active
+
+# ---------------------------------------------------------------------------
+# Sensors — M9 Calibrated: source-grounded sensor noise parameters
+# Calibrated per M9.1R.3 verified source brief + M9.1R.4 sources map.
+# Device classes: piezoresistive DP transmitter, electromagnetic mag flow meter,
+#                 ISO 7027 nephelometric turbidity sensor.
+# See M9.3 execution document Section 4 for full provenance.
+# ---------------------------------------------------------------------------
+sensors:
+  pressure:
+    dp_noise_kPa: 0.25                    # [GROUNDED M6] MEMS DP noise floor (PMC 2024, Nature 2023)
+    dp_drift_rate_kPa_per_step: 1.27e-6   # [CALIBRATED M9] conservative simulation-floor from MEMS 0.5% FS/year (S1-S4)
+    dp_drift_max_kPa: 0.40                # [CALIBRATED M9] annual worst-case envelope: 0.5% x 80 kPa (S3)
+    dp_fouling_gain: 0.02                  # [CALIBRATED M9] direct-mount sensor-line fouling; near-zero at episode scale (S7-S9)
+    dp_latency_steps: 1                    # [GROUNDED M6] 1-step lag (~100 ms); structural — do not change (SP4)
+  flow:
+    flow_noise_frac: 0.01                  # [GROUNDED M6] mag-meter 0.5-1% reading spec
+    flow_bias_std_lmin: 0.2                # [GROUNDED M6] factory calibration tolerance; conservative upper bound
+  optical:
+    turbidity_noise_std: 0.02              # [CALIBRATED M9] ISO 7027 +/-2% reading accuracy (S5, S6)
+    scatter_noise_std: 0.02                # [CALIBRATED M9] same device class as turbidity (S5, S6, S10)
+    camera_noise_std: 0.02                 # [UNCHANGED] no device class committed; deferred to M10+
