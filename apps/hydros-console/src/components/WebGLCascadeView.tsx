@@ -105,19 +105,20 @@ function buildBezierConeProfile(
 function ReactorHousing() {
   return (
     <group>
-      {/* Main transparent tube along X axis */}
+      {/* Main transparent tube along X axis.  Uses plain transparent
+          standardMaterial (no PBR transmission) so the cones / particles
+          inside render correctly through the housing wall from any side
+          angle — transmission was hiding everything behind the wall. */}
       <mesh rotation={[0, 0, Math.PI / 2]} position={[0, 0, 0]}>
         <cylinderGeometry args={[0.62, 0.62, 2.4, 64, 1, true]} />
-        <meshPhysicalMaterial
-          color="#0E1E33"
-          metalness={0.3}
-          roughness={0.25}
-          transmission={0.7}
-          thickness={0.4}
-          ior={1.45}
+        <meshStandardMaterial
+          color="#1A3A5E"
+          metalness={0.35}
+          roughness={0.30}
           side={THREE.DoubleSide}
           transparent
-          opacity={0.22}
+          opacity={0.12}
+          depthWrite={false}
         />
       </mesh>
 
@@ -170,7 +171,10 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
   const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
   const length = nx(stg.apexX) - nx(stg.xStart);
   const baseRadius = 0.52;
-  const apexRadius = [0.30, 0.20, 0.12][stageIdx];
+  // Pointy apex so each cone reads as a funnel with a clear "node" at the
+  // tip — the node is where particles converge and drop through the ejection
+  // pipe into the channel below.
+  const apexRadius = [0.10, 0.075, 0.05][stageIdx];
 
   // Per-stage mesh thickness + wireframe opacity.  S1 = coarse + thick (largest
   // gap between outer surface and inner wireframe, most prominent wires),
@@ -339,6 +343,44 @@ function ExtractionChannel({ stageIdx }: ExtractionChannelProps) {
         <meshStandardMaterial color={colorObj} emissive={colorObj} emissiveIntensity={0.55} />
       </mesh>
     </group>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  EjectionPipe — color-coded vertical pipe from each cone's apex through
+//  the bore wall down to its corresponding extraction channel.  Matches the
+//  2D canonical ejection line `<line x1=apexX y1=244 x2=apexX y2=chY />`.
+//  Communicates that captured particles funnel through the cone's "node"
+//  (the apex) and drop into the channel below.
+// ─────────────────────────────────────────────────────────────────────────
+
+function EjectionPipe({ stageIdx }: { stageIdx: 0 | 1 | 2 }) {
+  const stg = SVG_STAGE_X[stageIdx];
+  const colorObj = useMemo(() => new THREE.Color(stg.color), [stg.color]);
+
+  const length = nx(stg.apexX) - nx(stg.xStart);
+  const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
+  const apexX = xMid + (length / 2) * Math.cos(APEX_TILT_RAD);
+  const apexZ = (length / 2) * Math.sin(APEX_TILT_RAD);
+
+  const pos = channelWorldPos(stageIdx);
+  const zTop = apexZ;
+  const zBot = pos.z;
+  const pipeLength = zBot - zTop;
+  if (pipeLength <= 0.01) return null;
+  const pipeMidZ = (zTop + zBot) / 2;
+
+  return (
+    <mesh rotation={[Math.PI / 2, 0, 0]} position={[apexX, 0, pipeMidZ]}>
+      <cylinderGeometry args={[0.022, 0.022, pipeLength, 12]} />
+      <meshStandardMaterial
+        color={colorObj}
+        emissive={colorObj}
+        emissiveIntensity={0.40}
+        metalness={0.65}
+        roughness={0.35}
+      />
+    </mesh>
   );
 }
 
@@ -766,13 +808,12 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const capturePhaseAge = phase - STAGE_APEX_PHASES[captureStage];
       flashAges[i] = capturePhaseAge / speed;
     } else {
-      // IN TRANSIT — particles flow as a sheath NEAR THE BORE WALL,
-      // distributed across the full angular range around the bore axis.
-      // Each particle holds a stable per-index angle while it translates
-      // downstream, so the cross-section reads as a tube of particles riding
-      // the wall — not a single axial stream floating in the middle of the
-      // bore.  A light apex pull narrows the sheath slightly near each
-      // stage's downstream end where capture happens.
+      // IN TRANSIT — particles enter the stage distributed broadly across
+      // the bore cross-section (some near the wall, some further in), then
+      // funnel VISIBLY toward the cone's apex node as they advance through
+      // the stage.  By localPhase=1.0 the radius has collapsed to ~5–8% of
+      // the bore — matching the 2D where particles converge at the apex
+      // and drop through the ejection pipe into the channel.
       const xSvg = SVG_X_MIN + phase * SVG_X_RANGE;
       let stageIdx = 0;
       if (xSvg > 306) stageIdx = 1;
@@ -781,9 +822,10 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const localPhase = (xSvg - stg.xStart) / (stg.xEnd - stg.xStart);
 
       const angle = seed * 1.93 + i * 0.097;
-      const baseR = 0.50 + Math.sin(seed * 3.7) * 0.06;     // [0.44, 0.56]
-      const apexPull = Math.max(0, localPhase - 0.7) * 0.22;
-      const r = Math.max(0.08, baseR - apexPull);
+      const baseR = 0.14 + (Math.sin(seed * 3.7) * 0.5 + 0.5) * 0.38;   // [0.14, 0.52]
+      const apexPullStrength = Math.max(0, (localPhase - 0.35) / 0.65); // 0..1 ramp
+      const apexPull = apexPullStrength * baseR * 0.88;
+      const r = Math.max(0.04, baseR - apexPull);
 
       wx = nx(xSvg);
       wy = r * Math.cos(angle);
@@ -995,6 +1037,10 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
         <ExtractionChannel stageIdx={0} />
         <ExtractionChannel stageIdx={1} />
         <ExtractionChannel stageIdx={2} />
+
+        <EjectionPipe stageIdx={0} />
+        <EjectionPipe stageIdx={1} />
+        <EjectionPipe stageIdx={2} />
 
         <FlushPort stageIdx={0} active={state?.flushActiveS1 ?? false} />
         <FlushPort stageIdx={1} active={state?.flushActiveS2 ?? false} />
