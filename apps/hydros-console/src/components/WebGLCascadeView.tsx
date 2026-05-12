@@ -48,6 +48,11 @@ const SVG_X_MIN = 80;
 const SVG_X_MAX = 730;
 const SVG_X_RANGE = SVG_X_MAX - SVG_X_MIN;
 
+// All three extraction channels converge here, just inside the storage chamber.
+// Matches the 2D canonical design where each channel runs from its stage
+// xStart through to ~SVG x=674 / +0.83 world, then bridges into storage.
+const CHANNEL_X_END = 1.0;
+
 function nx(xSvg: number): number {
   return ((xSvg - SVG_X_MIN) / SVG_X_RANGE) * 2 - 1;
 }
@@ -241,18 +246,20 @@ interface ExtractionChannelProps {
   stageIdx: 0 | 1 | 2;
 }
 
-// World-coordinate position helper for an extraction channel.  Channels sit
-// just outside the housing bottom wall at a moderate staircase offset, with
-// captured particles rendered AT the channel position so storage stays
-// visually integrated with the device, not floating in empty space.
+// World-coordinate position helper for an extraction channel.  Each channel
+// runs from its stage's xStart all the way to CHANNEL_X_END (matching the 2D
+// canonical design where channels span the full device length and converge
+// at the storage chamber).  Y values are spread so the three parallel tracks
+// are visually distinct; Z is staircased so S1 sits closest to the housing
+// and S3 furthest (matches SVG chY staircase 252 → 274 → 296).
 function channelWorldPos(stageIdx: 0 | 1 | 2): { x: number; y: number; z: number; length: number } {
   const stg = SVG_STAGE_X[stageIdx];
-  const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
-  const length = nx(stg.xEnd) - nx(stg.xStart);
-  // Just below the housing wall (bore radius = 0.62), with each stage
-  // descending slightly to create a visible staircase.
+  const xStart = nx(stg.xStart);
+  const length = CHANNEL_X_END - xStart;
+  const xMid = (xStart + CHANNEL_X_END) / 2;
+  const yByStage = [-0.15, 0, 0.15];
+  const y = yByStage[stageIdx];
   const z = 0.70 + stageIdx * 0.06;
-  const y = -0.03 - stageIdx * 0.015;
   return { x: xMid, y, z, length };
 }
 
@@ -263,21 +270,17 @@ function ExtractionChannel({ stageIdx }: ExtractionChannelProps) {
 
   return (
     <group position={[pos.x, pos.y, pos.z]}>
-      {/* Collection trough — open top, closed sides + bottom */}
+      {/* Long collection tube — runs from this stage's xStart all the way to
+          the storage convergence point at CHANNEL_X_END.  Slim cross-section
+          so the three parallel tracks at staircased z/y read cleanly. */}
       <mesh>
-        <boxGeometry args={[pos.length * 0.95, 0.06, 0.18]} />
+        <boxGeometry args={[pos.length * 0.96, 0.05, 0.07]} />
         <meshStandardMaterial color="#334155" metalness={0.7} roughness={0.45} />
       </mesh>
-      {/* Inner highlight strip — color-codes the channel to its stage */}
-      <mesh position={[0, 0.035, 0]}>
-        <boxGeometry args={[pos.length * 0.92, 0.005, 0.15]} />
+      {/* Inner highlight strip — color-codes the channel to its source stage */}
+      <mesh position={[0, 0.028, 0]}>
+        <boxGeometry args={[pos.length * 0.93, 0.005, 0.05]} />
         <meshStandardMaterial color={colorObj} emissive={colorObj} emissiveIntensity={0.55} />
-      </mesh>
-      {/* Drop chute — short tapered connector from the housing wall down to
-          the channel, communicating that captured particles fall here. */}
-      <mesh position={[0, 0.05, -0.08]} rotation={[Math.PI / 6, 0, 0]}>
-        <boxGeometry args={[pos.length * 0.4, 0.02, 0.06]} />
-        <meshStandardMaterial color="#64748B" metalness={0.7} roughness={0.4} transparent opacity={0.6} />
       </mesh>
     </group>
   );
@@ -384,17 +387,29 @@ interface StorageChamberProps {
   storedParticles: ReadonlyArray<StoredParticleLike>;
 }
 
-const STORAGE_X_CENTER = 1.0;
-const STORAGE_Z_CENTER = 1.4;
-const STORAGE_RADIUS = 0.28;
-const STORAGE_LENGTH = 0.6;
-const STORAGE_Z_TOP = STORAGE_Z_CENTER - STORAGE_LENGTH / 2;  // 1.10
-const STORAGE_Z_BOT = STORAGE_Z_CENTER + STORAGE_LENGTH / 2;  // 1.70
+// Horizontal-cylinder storage along the bore axis, downstream of the channels.
+// The three extraction channels each terminate above this chamber via a short
+// drop chute that color-codes back to its source stage.
+const STORAGE_X_CENTER = 1.20;
+const STORAGE_Z_CENTER = 1.10;
+const STORAGE_RADIUS = 0.22;
+const STORAGE_LENGTH = 0.55;
+const STORAGE_X_LEFT = STORAGE_X_CENTER - STORAGE_LENGTH / 2;   // 0.925
+const STORAGE_X_RIGHT = STORAGE_X_CENTER + STORAGE_LENGTH / 2;  // 1.475
+
+// Z at which the cylindrical chamber wall sits, as a function of off-axis Y.
+// Used to terminate each drop chute exactly at the chamber surface so the
+// three feeds visually connect rather than floating above the chamber.
+function chamberTopZ(y: number): number {
+  const r2 = STORAGE_RADIUS * STORAGE_RADIUS - y * y;
+  if (r2 <= 0) return STORAGE_Z_CENTER;
+  return STORAGE_Z_CENTER - Math.sqrt(r2);
+}
 
 function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
   const clampedFill = Math.max(0, Math.min(1, fill));
   const fillLength = STORAGE_LENGTH * clampedFill;
-  const fillCenterZ = STORAGE_Z_BOT - fillLength / 2;
+  const fillCenterX = STORAGE_X_LEFT + fillLength / 2;
 
   const particleData = useMemo(() => {
     const N = Math.min(storedParticles.length, 80);
@@ -405,12 +420,13 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
       const b = ((i * 4271 + 12911) % 233280) / 233280;
       const c = ((i * 6781 + 21379) % 233280) / 233280;
       const angle = a * Math.PI * 2;
-      const radius = Math.sqrt(b) * STORAGE_RADIUS * 0.85;
-      const z = STORAGE_Z_BOT - c * fillLength;
-      const x = STORAGE_X_CENTER + Math.cos(angle) * radius;
-      const y = Math.sin(angle) * radius;
+      const radius = Math.sqrt(b) * STORAGE_RADIUS * 0.82;
+      // Settle particles toward the bottom of the horizontal chamber (high z).
+      const yOff = Math.cos(angle) * radius;
+      const zOff = Math.abs(Math.sin(angle)) * radius;
+      const x = STORAGE_X_LEFT + c * Math.max(fillLength, STORAGE_LENGTH * 0.15);
       arr.push({
-        pos: [x, y, z],
+        pos: [x, yOff, STORAGE_Z_CENTER + zOff * 0.7],
         rgb: speciesColor(p.species),
         size: diameterToWorldSize(p.d_p_um) * 0.6,
       });
@@ -420,14 +436,37 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
 
   return (
     <group>
-      {/* Drop tube — funnel from housing bottom near S3 down to chamber top */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, 0.86]}>
-        <cylinderGeometry args={[0.10, 0.06, 0.48, 16]} />
-        <meshStandardMaterial color="#64748B" metalness={0.75} roughness={0.35} transparent opacity={0.75} />
-      </mesh>
+      {/* Per-stage drop chutes — feed each channel's downstream end into the
+          storage chamber.  Color-coded to source stage so the chamber's
+          inlets are visibly tied back to S1/S2/S3. */}
+      {([0, 1, 2] as const).map((stageIdx) => {
+        const pos = channelWorldPos(stageIdx);
+        const stg = SVG_STAGE_X[stageIdx];
+        const zTop = pos.z + 0.025;
+        const zBot = chamberTopZ(pos.y);
+        const len = zBot - zTop;
+        if (len <= 0.01) return null;
+        const zCenter = (zTop + zBot) / 2;
+        return (
+          <mesh
+            key={stageIdx}
+            rotation={[Math.PI / 2, 0, 0]}
+            position={[CHANNEL_X_END, pos.y, zCenter]}
+          >
+            <cylinderGeometry args={[0.038, 0.038, len, 12]} />
+            <meshStandardMaterial
+              color={stg.color}
+              emissive={stg.color}
+              emissiveIntensity={0.25}
+              metalness={0.6}
+              roughness={0.4}
+            />
+          </mesh>
+        );
+      })}
 
-      {/* Transparent outer shell */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_CENTER]}>
+      {/* Transparent outer shell — horizontal cylinder along X axis */}
+      <mesh rotation={[0, 0, Math.PI / 2]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_CENTER]}>
         <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, STORAGE_LENGTH, 32, 1, true]} />
         <meshPhysicalMaterial
           color="#0E1E33"
@@ -442,21 +481,23 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
         />
       </mesh>
 
-      {/* Top cap (housing-attached end) */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_TOP]}>
+      {/* Left cap (housing-attached end) */}
+      <mesh rotation={[0, 0, Math.PI / 2]} position={[STORAGE_X_LEFT, 0, STORAGE_Z_CENTER]}>
         <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, 0.04, 32]} />
         <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.3} />
       </mesh>
 
-      {/* Bottom cap (removable end — slightly accented to read as "detachable") */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_BOT]}>
+      {/* Right cap (removable end — accented slightly to read as detachable) */}
+      <mesh rotation={[0, 0, Math.PI / 2]} position={[STORAGE_X_RIGHT, 0, STORAGE_Z_CENTER]}>
         <cylinderGeometry args={[STORAGE_RADIUS * 1.05, STORAGE_RADIUS * 1.05, 0.05, 32]} />
         <meshStandardMaterial color="#64748B" metalness={0.85} roughness={0.25} />
       </mesh>
 
-      {/* Fill volume — translucent water column rising from bottom */}
+      {/* Fill volume — translucent water column inside the chamber.  Renders
+          as a smaller-radius concentric cylinder along the chamber axis,
+          length proportional to storageFill. */}
       {fillLength > 0.001 && (
-        <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, fillCenterZ]}>
+        <mesh rotation={[0, 0, Math.PI / 2]} position={[fillCenterX, 0, STORAGE_Z_CENTER]}>
           <cylinderGeometry args={[STORAGE_RADIUS * 0.92, STORAGE_RADIUS * 0.92, fillLength, 32]} />
           <meshPhysicalMaterial
             color="#1A3A5E"
@@ -473,7 +514,7 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
         </mesh>
       )}
 
-      {/* Stored particles — distributed swarm inside the fill volume */}
+      {/* Stored particles — distributed swarm inside the chamber */}
       {particleData.map((pd, i) => (
         <mesh key={i} position={pd.pos}>
           <sphereGeometry args={[pd.size, 8, 8]} />
@@ -485,9 +526,9 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
         </mesh>
       ))}
 
-      {/* Storage label */}
+      {/* Storage label — at label-row Y, aligned with chamber X/Z */}
       <Text
-        position={[STORAGE_X_CENTER, -0.85, 1.05]}
+        position={[STORAGE_X_CENTER, -0.85, STORAGE_Z_CENTER]}
         fontSize={0.085}
         color="#7DD3FC"
         anchorX="center"
