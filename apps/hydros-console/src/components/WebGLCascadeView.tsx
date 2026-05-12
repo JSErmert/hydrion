@@ -284,6 +284,244 @@ function ExtractionChannel({ stageIdx }: ExtractionChannelProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+//  POL ZONE — inlet polarization marker upstream of S1.  Communicates where
+//  particles get pre-charged before they encounter the first capture stage.
+// ─────────────────────────────────────────────────────────────────────────
+
+function PolZone() {
+  return (
+    <group>
+      <mesh rotation={[0, Math.PI / 2, 0]} position={[-1.05, 0, 0]}>
+        <torusGeometry args={[0.62, 0.025, 16, 48]} />
+        <meshStandardMaterial
+          color="#C4B5FD"
+          emissive="#7C3AED"
+          emissiveIntensity={1.0}
+          metalness={0.3}
+          roughness={0.35}
+        />
+      </mesh>
+      <mesh rotation={[0, Math.PI / 2, 0]} position={[-0.95, 0, 0]}>
+        <torusGeometry args={[0.62, 0.020, 16, 48]} />
+        <meshStandardMaterial
+          color="#C4B5FD"
+          emissive="#7C3AED"
+          emissiveIntensity={0.65}
+          metalness={0.3}
+          roughness={0.35}
+        />
+      </mesh>
+      <Text
+        position={[-1.0, -0.85, -0.05]}
+        fontSize={0.095}
+        color="#A78BFA"
+        anchorX="center"
+        anchorY="middle"
+        outlineWidth={0.005}
+        outlineColor="#0E1E33"
+      >
+        POL ZONE
+      </Text>
+    </group>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Flush port — perpendicular inlet attached to the upstream end of each
+//  extraction channel.  Glows + shows an inflow chevron when the matching
+//  flushActiveS{n} flag is true (backflush water entering reverses capture).
+// ─────────────────────────────────────────────────────────────────────────
+
+interface FlushPortProps {
+  stageIdx: 0 | 1 | 2;
+  active: boolean;
+}
+
+function FlushPort({ stageIdx, active }: FlushPortProps) {
+  const pos = channelWorldPos(stageIdx);
+  const portX = pos.x - pos.length * 0.42;
+  const portZ = pos.z + 0.14;
+  return (
+    <group position={[portX, pos.y, portZ]}>
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.035, 0.035, 0.16, 16]} />
+        <meshStandardMaterial
+          color={active ? '#7DD3FC' : '#475569'}
+          emissive={active ? '#38BDF8' : '#000000'}
+          emissiveIntensity={active ? 1.4 : 0.0}
+          metalness={0.7}
+          roughness={0.3}
+        />
+      </mesh>
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.07]}>
+        <cylinderGeometry args={[0.05, 0.05, 0.02, 16]} />
+        <meshStandardMaterial color="#64748B" metalness={0.8} roughness={0.3} />
+      </mesh>
+      {active && (
+        <mesh position={[0, 0, 0.16]} rotation={[-Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.05, 0.09, 12]} />
+          <meshStandardMaterial color="#A5F3FC" emissive="#38BDF8" emissiveIntensity={1.6} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Storage Chamber — detachable downstream collection canister below the
+//  device.  Captured particles flushed from channels accumulate here as the
+//  visible "extracted microplastics" volume.  Fill level reads state.storageFill;
+//  stored swarm reads state.particleStreams.storage.
+// ─────────────────────────────────────────────────────────────────────────
+
+interface StoredParticleLike {
+  species: string;
+  d_p_um: number;
+}
+
+interface StorageChamberProps {
+  fill: number;
+  storedParticles: ReadonlyArray<StoredParticleLike>;
+}
+
+const STORAGE_X_CENTER = 1.0;
+const STORAGE_Z_CENTER = 1.4;
+const STORAGE_RADIUS = 0.28;
+const STORAGE_LENGTH = 0.6;
+const STORAGE_Z_TOP = STORAGE_Z_CENTER - STORAGE_LENGTH / 2;  // 1.10
+const STORAGE_Z_BOT = STORAGE_Z_CENTER + STORAGE_LENGTH / 2;  // 1.70
+
+function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
+  const clampedFill = Math.max(0, Math.min(1, fill));
+  const fillLength = STORAGE_LENGTH * clampedFill;
+  const fillCenterZ = STORAGE_Z_BOT - fillLength / 2;
+
+  const particleData = useMemo(() => {
+    const N = Math.min(storedParticles.length, 80);
+    const arr: Array<{ pos: [number, number, number]; rgb: [number, number, number]; size: number }> = [];
+    for (let i = 0; i < N; i++) {
+      const p = storedParticles[i];
+      const a = ((i * 9301 + 49297) % 233280) / 233280;
+      const b = ((i * 4271 + 12911) % 233280) / 233280;
+      const c = ((i * 6781 + 21379) % 233280) / 233280;
+      const angle = a * Math.PI * 2;
+      const radius = Math.sqrt(b) * STORAGE_RADIUS * 0.85;
+      const z = STORAGE_Z_BOT - c * fillLength;
+      const x = STORAGE_X_CENTER + Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+      arr.push({
+        pos: [x, y, z],
+        rgb: speciesColor(p.species),
+        size: diameterToWorldSize(p.d_p_um) * 0.6,
+      });
+    }
+    return arr;
+  }, [storedParticles, fillLength]);
+
+  return (
+    <group>
+      {/* Drop tube — funnel from housing bottom near S3 down to chamber top */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, 0.86]}>
+        <cylinderGeometry args={[0.10, 0.06, 0.48, 16]} />
+        <meshStandardMaterial color="#64748B" metalness={0.75} roughness={0.35} transparent opacity={0.75} />
+      </mesh>
+
+      {/* Transparent outer shell */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_CENTER]}>
+        <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, STORAGE_LENGTH, 32, 1, true]} />
+        <meshPhysicalMaterial
+          color="#0E1E33"
+          metalness={0.2}
+          roughness={0.2}
+          transmission={0.85}
+          thickness={0.3}
+          ior={1.5}
+          side={THREE.DoubleSide}
+          transparent
+          opacity={0.25}
+        />
+      </mesh>
+
+      {/* Top cap (housing-attached end) */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_TOP]}>
+        <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, 0.04, 32]} />
+        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.3} />
+      </mesh>
+
+      {/* Bottom cap (removable end — slightly accented to read as "detachable") */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_BOT]}>
+        <cylinderGeometry args={[STORAGE_RADIUS * 1.05, STORAGE_RADIUS * 1.05, 0.05, 32]} />
+        <meshStandardMaterial color="#64748B" metalness={0.85} roughness={0.25} />
+      </mesh>
+
+      {/* Fill volume — translucent water column rising from bottom */}
+      {fillLength > 0.001 && (
+        <mesh rotation={[Math.PI / 2, 0, 0]} position={[STORAGE_X_CENTER, 0, fillCenterZ]}>
+          <cylinderGeometry args={[STORAGE_RADIUS * 0.92, STORAGE_RADIUS * 0.92, fillLength, 32]} />
+          <meshPhysicalMaterial
+            color="#1A3A5E"
+            transmission={0.55}
+            thickness={0.4}
+            ior={1.33}
+            roughness={0.05}
+            metalness={0.05}
+            transparent
+            opacity={0.55}
+            emissive="#1A3A5E"
+            emissiveIntensity={0.18}
+          />
+        </mesh>
+      )}
+
+      {/* Stored particles — distributed swarm inside the fill volume */}
+      {particleData.map((pd, i) => (
+        <mesh key={i} position={pd.pos}>
+          <sphereGeometry args={[pd.size, 8, 8]} />
+          <meshStandardMaterial
+            color={new THREE.Color(pd.rgb[0], pd.rgb[1], pd.rgb[2])}
+            emissive={new THREE.Color(pd.rgb[0], pd.rgb[1], pd.rgb[2])}
+            emissiveIntensity={0.4}
+          />
+        </mesh>
+      ))}
+
+      {/* Storage label */}
+      <Text
+        position={[STORAGE_X_CENTER, -0.85, 1.05]}
+        fontSize={0.085}
+        color="#7DD3FC"
+        anchorX="center"
+        anchorY="middle"
+        outlineWidth={0.005}
+        outlineColor="#0E1E33"
+      >
+        {`STORAGE · ${Math.round(clampedFill * 100)}%`}
+      </Text>
+    </group>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Outlet label — "CLEAN WATER BORE" marker above the downstream outlet.
+// ─────────────────────────────────────────────────────────────────────────
+
+function OutletLabel() {
+  return (
+    <Text
+      position={[1.4, 0.85, 0]}
+      fontSize={0.08}
+      color="#A5F3FC"
+      anchorX="center"
+      anchorY="middle"
+      outlineWidth={0.005}
+      outlineColor="#0E1E33"
+    >
+      CLEAN WATER BORE →
+    </Text>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 //  GLSL shaders — particle vertex + fragment with capture-flash + status
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -618,10 +856,20 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
 
   const [fateDist, setFateDist] = useState<[number, number, number, number]>([0, 0, 0, 0]);
 
+  const storageFillPct = Math.round((state?.storageFill ?? 0) * 100);
+  const flushFlags = [
+    state?.flushActiveS1 ?? false,
+    state?.flushActiveS2 ?? false,
+    state?.flushActiveS3 ?? false,
+  ];
+  const activeFlushes = ['S1', 'S2', 'S3'].filter((_, i) => flushFlags[i]);
+  const flushDisplay = activeFlushes.length > 0 ? activeFlushes.join(' + ') : 'idle';
+  const anyFlush = activeFlushes.length > 0;
+
   return (
     <div style={{ width: '100%', height: '100%', background: '#080D18', position: 'relative' }}>
       <Canvas
-        camera={{ position: [1.6, 0.9, 2.0], fov: 36 }}
+        camera={{ position: [2.4, 1.1, 2.8], fov: 38 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
@@ -633,6 +881,8 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
         <Environment preset="warehouse" background={false} />
 
         <ReactorHousing />
+
+        <PolZone />
 
         <ConicalStage stageIdx={0} eField={eFieldArr[0]} clogLevel={clogArr[0]} />
         <ConicalStage stageIdx={1} eField={eFieldArr[1]} clogLevel={clogArr[1]} />
@@ -646,6 +896,17 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
         <ExtractionChannel stageIdx={1} />
         <ExtractionChannel stageIdx={2} />
 
+        <FlushPort stageIdx={0} active={state?.flushActiveS1 ?? false} />
+        <FlushPort stageIdx={1} active={state?.flushActiveS2 ?? false} />
+        <FlushPort stageIdx={2} active={state?.flushActiveS3 ?? false} />
+
+        <StorageChamber
+          fill={state?.storageFill ?? 0}
+          storedParticles={state?.particleStreams?.storage ?? []}
+        />
+
+        <OutletLabel />
+
         <ParticleField
           realParticles={realParticles}
           capacity={1500}
@@ -654,9 +915,10 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
         />
 
         <OrbitControls
+          target={[0.3, 0, 0.3]}
           enablePan={false}
-          minDistance={1.5}
-          maxDistance={6}
+          minDistance={1.6}
+          maxDistance={7}
           maxPolarAngle={Math.PI / 1.6}
           autoRotate
           autoRotateSpeed={0.2}
@@ -694,6 +956,15 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
             <span style={{ color: '#FBBF24' }}>S2: {fateDist[1]}</span>
             <span style={{ color: '#38BDF8' }}>S3: {fateDist[2]}</span>
             <span style={{ color: '#94A3B8' }}>pass-through: {fateDist[3]}</span>
+          </div>
+        </div>
+        <div style={{ marginTop: 6, borderTop: '1px solid rgba(56, 189, 248, 0.2)', paddingTop: 6 }}>
+          <div style={{ color: '#94A3B8', fontSize: 10, marginBottom: 3 }}>SYSTEM STATE</div>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            <span style={{ color: '#7DD3FC' }}>storage: {storageFillPct}%</span>
+            <span style={{ color: anyFlush ? '#38BDF8' : '#94A3B8', fontWeight: anyFlush ? 600 : 400 }}>
+              flush: {flushDisplay}
+            </span>
           </div>
         </div>
       </div>
