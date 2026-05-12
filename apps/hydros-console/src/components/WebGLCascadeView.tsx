@@ -883,19 +883,41 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
 
       const angle = seed * 1.93 + i * 0.097;
       const baseR = 0.14 + (Math.sin(seed * 3.7) * 0.5 + 0.5) * 0.38;   // [0.14, 0.52]
+
+      // Cone envelope radius at this localPhase — same cubic Bezier used by
+      // buildBezierConeProfile, so the particle is constrained to stay
+      // INSIDE the visible cone wall.  A particle's center can never be on
+      // the downstream side of the mesh: it's clamped to coneEnvR minus its
+      // own visual size minus a small padding.
+      const baseRCone = 0.52;
+      const apexRCone = [0.10, 0.075, 0.05][stageIdx];
+      const uBz = 1 - localPhase;
+      const coneEnvR =
+        uBz * uBz * uBz * baseRCone
+        + 3 * uBz * uBz * localPhase * baseRCone
+        + 3 * uBz * localPhase * localPhase * (baseRCone + apexRCone) * 0.55
+        + localPhase * localPhase * localPhase * apexRCone;
+      const particleSize = diameterToWorldSize(d_p_um);
+      const maxParticleR = Math.max(0.04, coneEnvR * 0.92 - particleSize);
+
       // Only converge if THIS stage is where the particle gets captured.
-      // Pass-through particles (PET 5µm mostly) and particles destined for
-      // other stages flow straight without being pulled to the bore bottom.
+      // Pass-through particles flow straight without being pulled to the apex.
       const willCaptureHere = (captureStage === stageIdx);
       const apexPullStrength = willCaptureHere
         ? Math.max(0, (localPhase - 0.35) / 0.65)
         : 0;
-      const r = baseR * (1 - apexPullStrength * 0.92);
-      const zCenter = SHEAR_Z * apexPullStrength * 0.85;
+      const constrainedR = Math.min(baseR, maxParticleR);
+      const r = constrainedR * (1 - apexPullStrength * 0.92);
+      // Captured particles also follow the sheared cone axis (apex offset to
+      // +Z by SHEAR_Z), so they converge to the actual apex node — not the
+      // bore axis center.  Pass-through particles stay on the bore axis
+      // because they're slipping through the mesh openings, not following
+      // the cone interior.
+      const zConeAxis = willCaptureHere ? localPhase * SHEAR_Z : 0;
 
       wx = nx(xSvg);
       wy = r * Math.cos(angle);
-      wz = r * Math.sin(angle) + zCenter;
+      wz = r * Math.sin(angle) + zConeAxis;
       status = 'in_transit';
       flashAges[i] = -1;
     }
