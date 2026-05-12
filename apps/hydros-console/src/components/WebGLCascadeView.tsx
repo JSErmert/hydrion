@@ -4,21 +4,25 @@
 //
 // Renders the three-stage conical cascade as 3D geometry using Three.js via
 // React Three Fiber, with custom GLSL vertex/fragment shaders for particle
-// dynamics and electrostatic-field visualization.
-//
-// Consumes the same HydrosDisplayState the SVG view consumes — particles, field
-// strength, and capture status drive the GPU pipeline directly.
+// dynamics, capture-flash effects, and electrostatic-field visualization.
 //
 // Stages match ConicalCascadeView geometry exactly:
-//   S1 (coarse, orange) → S2 (medium, yellow) → S3 (fine, blue)
+//   S1 (coarse mesh, orange #FB923C) → S2 (medium mesh, yellow #FBBF24)
+//                                   → S3 (fine mesh, blue #38BDF8)
 //
-// Coordinate convention here: x maps to world X (downstream flow), y maps to
-// world Z (radial), all in normalised [-1, +1] device space converted from the
-// SVG coordinate model used by the physics engine.
+// Each stage is a conical filter with apex bottom-biased (the 2D design's
+// gravity-fed extraction model). Particles flow strictly left → right, with
+// probabilistic capture at each stage's apex; captured particles accumulate
+// visibly in extraction channels below each cone.
+//
+// Coordinate convention:
+//   world +X = downstream flow direction
+//   world +Z = bottom of the bore (matches SVG y increasing downward)
+//   world +Y = depth into the scene (the rotational axis the user orbits around)
 
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Environment } from '@react-three/drei';
-import { useMemo, useRef } from 'react';
+import { OrbitControls, Environment, Text } from '@react-three/drei';
+import { useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import type {
   HydrosDisplayState,
@@ -35,35 +39,36 @@ const SVG_BORE_BOT = 244;
 const SVG_CY = 154;
 
 const SVG_STAGE_X = [
-  { xStart: 118, xEnd: 298, apexX: 296, apexY: 243, color: '#FB923C', mult: 0.4 },
-  { xStart: 306, xEnd: 486, apexX: 484, apexY: 243, color: '#FBBF24', mult: 0.7 },
-  { xStart: 494, xEnd: 674, apexX: 672, apexY: 243, color: '#38BDF8', mult: 1.0 },
+  { xStart: 118, xEnd: 298, apexX: 296, apexY: 243, color: '#FB923C', mult: 0.4, chY: 280, wireSegments: 16, label: 'S1' },
+  { xStart: 306, xEnd: 486, apexX: 484, apexY: 243, color: '#FBBF24', mult: 0.7, chY: 302, wireSegments: 28, label: 'S2' },
+  { xStart: 494, xEnd: 674, apexX: 672, apexY: 243, color: '#38BDF8', mult: 1.0, chY: 324, wireSegments: 40, label: 'S3' },
 ] as const;
 
-// Total SVG x extent across all three stages
 const SVG_X_MIN = 80;
 const SVG_X_MAX = 730;
 const SVG_X_RANGE = SVG_X_MAX - SVG_X_MIN;
 
-// Normalise an SVG x coordinate to world X in [-1, +1].
 function nx(xSvg: number): number {
   return ((xSvg - SVG_X_MIN) / SVG_X_RANGE) * 2 - 1;
 }
 
-// Normalise an SVG y coordinate (BORE_TOP..BORE_BOT) to world Z in [-1, +1].
 function nz(ySvg: number): number {
+  // SVG y increases downward; world +Z = bottom of bore
   return ((ySvg - SVG_BORE_TOP) / (SVG_BORE_BOT - SVG_BORE_TOP)) * 2 - 1;
 }
 
+// Apex bottom-bias — matches 2D's gravity-fed extraction (apex near BORE_BOT)
+const APEX_TILT_RAD = Math.PI / 14;  // ~12.8° downward tilt per stage
+
 // ─────────────────────────────────────────────────────────────────────────
-//  Reactor housing — outer cylinder enclosing all three stages
+//  Reactor housing — transparent tube with PROPERLY-ORIENTED end flanges
+//  plus inlet/outlet nozzles to communicate flow direction visually.
 // ─────────────────────────────────────────────────────────────────────────
 
 function ReactorHousing() {
-  // Tube length spans full normalized X range; narrower radius for a more elongated reactor read.
   return (
     <group>
-      {/* Main transparent tube */}
+      {/* Main transparent tube along X axis */}
       <mesh rotation={[0, 0, Math.PI / 2]} position={[0, 0, 0]}>
         <cylinderGeometry args={[0.62, 0.62, 2.4, 64, 1, true]} />
         <meshPhysicalMaterial
@@ -78,111 +83,211 @@ function ReactorHousing() {
           opacity={0.22}
         />
       </mesh>
-      {/* End caps — inlet and outlet flanges */}
-      <mesh rotation={[0, 0, Math.PI / 2]} position={[-1.2, 0, 0]}>
+
+      {/* End flange rings — rotated around Y axis so their plane is
+          perpendicular to X (i.e., concentric with the housing).  Previous
+          rotation around Z left them as vertical hoops crossing the tube. */}
+      <mesh rotation={[0, Math.PI / 2, 0]} position={[-1.2, 0, 0]}>
         <torusGeometry args={[0.62, 0.06, 16, 48]} />
-        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.25} />
+        <meshStandardMaterial color="#64748B" metalness={0.85} roughness={0.25} />
       </mesh>
-      <mesh rotation={[0, 0, Math.PI / 2]} position={[1.2, 0, 0]}>
+      <mesh rotation={[0, Math.PI / 2, 0]} position={[1.2, 0, 0]}>
         <torusGeometry args={[0.62, 0.06, 16, 48]} />
-        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.25} />
+        <meshStandardMaterial color="#64748B" metalness={0.85} roughness={0.25} />
+      </mesh>
+
+      {/* Inlet nozzle — short cylinder extruding leftward from inlet flange */}
+      <mesh rotation={[0, 0, Math.PI / 2]} position={[-1.4, 0, 0]}>
+        <cylinderGeometry args={[0.28, 0.28, 0.4, 32]} />
+        <meshStandardMaterial color="#475569" metalness={0.75} roughness={0.3} />
+      </mesh>
+
+      {/* Outlet nozzle — short narrower cylinder extruding rightward */}
+      <mesh rotation={[0, 0, Math.PI / 2]} position={[1.4, 0, 0]}>
+        <cylinderGeometry args={[0.18, 0.18, 0.4, 32]} />
+        <meshStandardMaterial color="#475569" metalness={0.75} roughness={0.3} />
+      </mesh>
+
+      {/* Flow direction arrow chevron at the inlet — subtle but visible */}
+      <mesh position={[-1.6, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
+        <coneGeometry args={[0.12, 0.18, 16]} />
+        <meshStandardMaterial color="#7DD3FC" emissive="#1A3A5E" emissiveIntensity={0.6} />
       </mesh>
     </group>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-//  Conical stage — one filtration cone (S1, S2, or S3)
+//  Conical stage — one filtration cone with forced color, wireframe-density
+//  variation, asymmetric apex tilt, and a downstream gap disc.
 // ─────────────────────────────────────────────────────────────────────────
 
 interface StageProps {
   stageIdx: 0 | 1 | 2;
-  eField: number;       // [0, 1] field strength
-  clogLevel: number;    // [0, 1] clogging
+  eField: number;
+  clogLevel: number;
 }
 
 function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
   const stg = SVG_STAGE_X[stageIdx];
   const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
   const length = nx(stg.apexX) - nx(stg.xStart);
-  const baseRadius = 0.55;
-  // Apex radius reflects mesh fineness: S1 wide, S3 narrow
-  const apexRadius = [0.32, 0.20, 0.10][stageIdx];
+  const baseRadius = 0.52;
+  const apexRadius = [0.30, 0.20, 0.12][stageIdx];
 
-  // Color shifts with clogging
-  const color = useMemo(() => {
-    const base = new THREE.Color(stg.color);
+  // FORCE stage color — bypass clog tint so the three stages always read as
+  // distinct orange/yellow/blue regardless of operational state.
+  const stageColor = useMemo(() => new THREE.Color(stg.color), [stg.color]);
+  const emissiveColor = useMemo(() => new THREE.Color(stg.color).multiplyScalar(0.4), [stg.color]);
+
+  // Clog-tinted shadow color for the inner cone — fouled stages darken
+  const cloggedColor = useMemo(() => {
     const clogged = new THREE.Color('#3a1f1f');
-    return base.clone().lerp(clogged, clogLevel * 0.7);
-  }, [stg.color, clogLevel]);
+    return stageColor.clone().lerp(clogged, clogLevel * 0.4);
+  }, [stageColor, clogLevel]);
 
   const fieldGlowRef = useRef<THREE.MeshStandardMaterial>(null);
 
   useFrame(({ clock }) => {
     if (fieldGlowRef.current) {
-      // Pulsing emissive intensity proportional to electrostatic field strength
       const pulse = 0.4 + 0.6 * Math.sin(clock.elapsedTime * 3 + stageIdx);
-      fieldGlowRef.current.emissiveIntensity = eField * stg.mult * pulse;
+      fieldGlowRef.current.emissiveIntensity = 0.35 + eField * stg.mult * pulse * 0.6;
     }
   });
 
   return (
-    <group position={[xMid, 0, 0]}>
-      {/* Outer mesh cone — the filter surface */}
+    // Rotate the whole stage around Y to tilt the apex downward (toward +Z).
+    // This replicates the 2D design's gravity-biased extraction geometry.
+    <group position={[xMid, 0, 0]} rotation={[0, APEX_TILT_RAD, 0]}>
+      {/* Outer filter mesh cone — primary material with forced stage color */}
       <mesh rotation={[0, 0, -Math.PI / 2]}>
         <coneGeometry args={[baseRadius, length, 48, 1, true]} />
         <meshStandardMaterial
           ref={fieldGlowRef}
-          color={color}
-          emissive={color}
-          emissiveIntensity={eField * stg.mult}
-          metalness={0.6}
-          roughness={0.4}
+          color={stageColor}
+          emissive={emissiveColor}
+          emissiveIntensity={0.35 + eField * stg.mult * 0.4}
+          metalness={0.55}
+          roughness={0.45}
           side={THREE.DoubleSide}
-          wireframe={false}
           transparent
           opacity={0.55}
         />
       </mesh>
-      {/* Inner mesh — denser wireframe shows the weave fineness */}
-      <mesh rotation={[0, 0, -Math.PI / 2]} scale={[0.96, 0.96, 0.96]}>
-        <coneGeometry args={[baseRadius, length, 32, 1, true]} />
+
+      {/* Inner mesh — wireframe density varies per stage to communicate
+          filtration fineness: S1 coarse, S2 medium, S3 fine. */}
+      <mesh rotation={[0, 0, -Math.PI / 2]} scale={[0.97, 0.97, 0.97]}>
+        <coneGeometry args={[baseRadius, length, stg.wireSegments, 1, true]} />
         <meshBasicMaterial
-          color={color}
+          color={stageColor}
           wireframe
           transparent
-          opacity={0.55 - clogLevel * 0.25}
+          opacity={0.45 - clogLevel * 0.20}
         />
       </mesh>
-      {/* Apex collar — narrows to next stage */}
+
+      {/* Apex collar — narrow cylindrical neck at the cone tip */}
       <mesh position={[length / 2, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
         <cylinderGeometry args={[apexRadius, apexRadius, 0.04, 24]} />
-        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.25} />
+        <meshStandardMaterial color={cloggedColor} metalness={0.7} roughness={0.4} />
+      </mesh>
+
+      {/* Inter-stage transition disc — visible gap with central aperture.
+          Shows where one stage ends and the next begins. */}
+      {stageIdx < 2 && (
+        <mesh position={[length / 2 + 0.04, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <ringGeometry args={[apexRadius + 0.02, 0.55, 32]} />
+          <meshStandardMaterial color="#1E293B" metalness={0.6} roughness={0.3} side={THREE.DoubleSide} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Stage label — 3D floating text identifying each stage above its cone.
+// ─────────────────────────────────────────────────────────────────────────
+
+interface StageLabelProps {
+  stageIdx: 0 | 1 | 2;
+}
+
+function StageLabel({ stageIdx }: StageLabelProps) {
+  const stg = SVG_STAGE_X[stageIdx];
+  const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
+  return (
+    <Text
+      position={[xMid, -0.85, -0.05]}
+      fontSize={0.13}
+      color={stg.color}
+      anchorX="center"
+      anchorY="middle"
+      outlineWidth={0.005}
+      outlineColor="#0E1E33"
+    >
+      {stg.label}
+    </Text>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Extraction channel — trough below each cone collecting captured particles
+//  staircase configuration: S1 highest, S3 lowest (matches 2D chY values).
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ExtractionChannelProps {
+  stageIdx: 0 | 1 | 2;
+}
+
+function ExtractionChannel({ stageIdx }: ExtractionChannelProps) {
+  const stg = SVG_STAGE_X[stageIdx];
+  const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
+  const length = nx(stg.xEnd) - nx(stg.xStart);
+  // Each subsequent channel is lower (matches SVG chY staircase)
+  const zPos = 0.85 + stageIdx * 0.12;
+  const yPos = -0.05 - stageIdx * 0.02;
+  const colorObj = useMemo(() => new THREE.Color(stg.color), [stg.color]);
+
+  return (
+    <group position={[xMid, yPos, zPos]}>
+      {/* Open trough — open top, closed sides + bottom */}
+      <mesh>
+        <boxGeometry args={[length * 0.95, 0.06, 0.18]} />
+        <meshStandardMaterial color="#1E293B" metalness={0.6} roughness={0.5} />
+      </mesh>
+      {/* Inner highlight strip — colored thin line showing which stage owns the channel */}
+      <mesh position={[0, 0.035, 0]}>
+        <boxGeometry args={[length * 0.92, 0.005, 0.15]} />
+        <meshStandardMaterial color={colorObj} emissive={colorObj} emissiveIntensity={0.5} />
       </mesh>
     </group>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-//  Particle field — GPU-instanced particles driven by simulation state
+//  GLSL shaders — particle vertex + fragment with capture-flash + status
 // ─────────────────────────────────────────────────────────────────────────
 
-// Custom vertex shader: instanced particles with per-instance size + color
-// attributes; per-vertex sphere geometry scaled by particle diameter.
 const particleVertexShader = /* glsl */ `
-attribute vec3 iPosition;     // per-instance world position
-attribute float iSize;        // per-instance scale (diameter in microns / 500)
-attribute vec3 iColor;        // per-instance RGB color
-attribute float iCaptured;    // 1.0 if captured (drives emissive glow)
+attribute vec3 iPosition;
+attribute float iSize;
+attribute vec3 iColor;
+attribute float iCaptured;
+attribute float iFlashAge;     // time since capture in seconds; <0 = not captured
 
 varying vec3 vColor;
 varying float vCaptured;
 varying vec3 vNormal;
 varying vec3 vViewPosition;
+varying float vFlash;
 
 void main() {
   vColor = iColor;
   vCaptured = iCaptured;
+
+  // Capture-flash intensity: 1.0 at moment of capture, decays over ~0.5s
+  vFlash = (iFlashAge >= 0.0 && iFlashAge < 0.5) ? (1.0 - iFlashAge * 2.0) : 0.0;
 
   vec3 transformed = position * iSize + iPosition;
   vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
@@ -193,72 +298,179 @@ void main() {
 }
 `;
 
-// Custom fragment shader: per-particle lighting + captured-particle emissive
-// halo + species-color rim lighting.
 const particleFragmentShader = /* glsl */ `
 varying vec3 vColor;
 varying float vCaptured;
 varying vec3 vNormal;
 varying vec3 vViewPosition;
+varying float vFlash;
 
 void main() {
   vec3 N = normalize(vNormal);
   vec3 V = normalize(vViewPosition);
-
-  // Lambertian-ish term against a fixed key light direction
   vec3 L = normalize(vec3(0.5, 1.0, 0.8));
+
   float diffuse = max(dot(N, L), 0.0);
+  float rim = pow(1.0 - max(dot(N, V), 0.0), 2.5);
 
-  // Rim term — graphics-engineer-classic edge highlight
-  float rim = 1.0 - max(dot(N, V), 0.0);
-  rim = pow(rim, 2.5);
-
+  // In-transit particles: standard lit appearance with rim
+  // Captured particles: emissive boost + slight desaturation
   vec3 base = vColor * (0.35 + 0.65 * diffuse);
   vec3 rimColor = vColor * rim * 1.8;
 
-  // Captured particles glow — emissive boost
-  vec3 emissive = vColor * vCaptured * 0.9;
+  // Captured = persistent emissive halo
+  vec3 capturedEmissive = vColor * vCaptured * 1.4;
 
-  vec3 finalColor = base + rimColor + emissive;
+  // Flash = brief warm white burst at the moment of capture
+  vec3 flashColor = vec3(1.0, 0.95, 0.75) * vFlash * 2.2;
+
+  vec3 finalColor = base + rimColor + capturedEmissive + flashColor;
   gl_FragColor = vec4(finalColor, 1.0);
 }
 `;
 
-// Convert SVG-space ParticlePoint to world coords [-1, +1]
+// ─────────────────────────────────────────────────────────────────────────
+//  Particle utilities — coordinate conversion, species → color, size mapping
+// ─────────────────────────────────────────────────────────────────────────
+
 function particleToWorld(p: ParticlePoint): [number, number, number] {
   return [nx(p.x), 0, nz(p.y)];
 }
 
-// Species → color in RGB [0, 1]
+// PP / PE / PET species → RGB color [0, 1]
 function speciesColor(species: string): [number, number, number] {
   switch (species) {
-    case 'PP':  return [0.95, 0.45, 0.20];  // polypropylene — orange-red
-    case 'PE':  return [0.30, 0.85, 0.60];  // polyethylene — green
-    case 'PET': return [0.30, 0.65, 1.00];  // PET — blue
+    case 'PP':  return [0.98, 0.50, 0.20];   // polypropylene — warm orange-red
+    case 'PE':  return [0.30, 0.85, 0.55];   // polyethylene — green
+    case 'PET': return [0.40, 0.70, 1.00];   // PET — blue
     default:    return [0.85, 0.85, 0.85];
   }
 }
 
-interface ParticleFieldProps {
-  particles: ParticlePoint[];
-  capacity: number;     // Max instances; rendering clipped to this.
-  syntheticMode: boolean;  // when true, generate demo particles in useFrame
+// Size mapping: sqrt of (d_p_um / 500) — gives ~10x visual range for 100x physical range.
+// This is the standard "perceptually correct yet visible" scale used in
+// real-time particle visualisation.  Smaller particles still visible, larger
+// particles clearly dominant.
+function diameterToWorldSize(d_p_um: number): number {
+  const ratio = Math.max(5, Math.min(500, d_p_um)) / 500;
+  return 0.006 + Math.sqrt(ratio) * 0.052;
 }
 
-function ParticleField({ particles, capacity, syntheticMode }: ParticleFieldProps) {
+// ─────────────────────────────────────────────────────────────────────────
+//  Synthetic-particle generator — replaces the previous uniform-distribution
+//  approach with a true entry → traverse → capture lifecycle.  Each particle
+//  is deterministically assigned a capture-fate (S1, S2, S3, or pass-through)
+//  from its index, so the system behaves as a continuous flow with stable
+//  per-particle identity across frames.
+// ─────────────────────────────────────────────────────────────────────────
+
+interface SyntheticOutput {
+  particles: ParticlePoint[];
+  flashAges: Float32Array;      // per-particle "time since capture", or <0 if not captured
+  captureStats: [number, number, number];
+}
+
+// Apex phase positions (when each stage's apex is reached in the particle's
+// normalised travel through the reactor):
+const STAGE_APEX_PHASES = [0.31, 0.62, 0.93];
+
+function generateRealisticParticles(count: number, t: number): SyntheticOutput {
+  const particles: ParticlePoint[] = [];
+  const flashAges = new Float32Array(count);
+  const captureStats: [number, number, number] = [0, 0, 0];
+  const species = ['PET', 'PE', 'PP'];
+  const sizes = [5, 100, 500];
+
+  for (let i = 0; i < count; i++) {
+    const seed = i * 7331.7;
+    // Per-particle speed (deterministic): 0.06 – 0.10 cycles/sec
+    const speed = 0.06 + ((Math.sin(seed) + 1) * 0.5) * 0.04;
+    const startOffset = i / count;
+
+    // Deterministic capture-fate from index hash:
+    //   30% captured at S1, 25% at S2, 20% at S3, 25% pass through
+    const captureRoll = (Math.sin(seed * 1.3 + 0.7) + 1) * 0.5;
+    let captureStage = -1;
+    if (captureRoll < 0.30) captureStage = 0;
+    else if (captureRoll < 0.55) captureStage = 1;
+    else if (captureRoll < 0.75) captureStage = 2;
+
+    const phase = (startOffset + t * speed) % 1.0;
+    const sizeClass = i % 3;
+    const d_p_um = sizes[sizeClass];
+    const spec = species[sizeClass];
+
+    if (captureStage !== -1 && phase > STAGE_APEX_PHASES[captureStage]) {
+      // Captured — position in extraction channel
+      const stg = SVG_STAGE_X[captureStage];
+      // Spread captured particles along channel length
+      const inChannel = (Math.sin(seed * 2.7) + 1) * 0.5;
+      const xInChannel = stg.xStart + inChannel * (stg.apexX - stg.xStart);
+      // y is in the channel below the bore — use stg.chY
+      particles.push({
+        x: xInChannel,
+        y: stg.chY,
+        species: spec,
+        d_p_um,
+        status: 'captured',
+      });
+      captureStats[captureStage]++;
+      // Compute time since this particle's capture event (for flash decay)
+      const capturePhaseAge = phase - STAGE_APEX_PHASES[captureStage];
+      const ageInSec = capturePhaseAge / speed;
+      flashAges[i] = ageInSec;
+    } else {
+      // In transit — flowing through the bore
+      const xSvg = SVG_X_MIN + phase * SVG_X_RANGE;
+      let stageIdx = 0;
+      if (xSvg > 306) stageIdx = 1;
+      if (xSvg > 494) stageIdx = 2;
+      const stg = SVG_STAGE_X[stageIdx];
+      const localPhase = (xSvg - stg.xStart) / (stg.xEnd - stg.xStart);
+
+      // Radial position: random within bore, biased toward bottom near apex
+      const rTurbulence = Math.sin(seed * 3.7 + t * 0.8) * 0.65;
+      // Funnel effect — as localPhase → 1, particles concentrate toward bottom-right
+      const apexBias = Math.max(0, localPhase - 0.6) * 1.5;
+      const r = rTurbulence * (1 - localPhase * 0.4) + apexBias;
+      const ySvg = SVG_CY + r * (SVG_BORE_BOT - SVG_CY) * 0.6;
+
+      particles.push({
+        x: xSvg,
+        y: ySvg,
+        species: spec,
+        d_p_um,
+        status: 'in_transit',
+      });
+      flashAges[i] = -1;  // not captured
+    }
+  }
+
+  return { particles, flashAges, captureStats };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Particle field — GPU-instanced rendering with custom shaders
+// ─────────────────────────────────────────────────────────────────────────
+
+interface ParticleFieldProps {
+  realParticles: ParticlePoint[];
+  capacity: number;
+  syntheticMode: boolean;
+  onStatsUpdate?: (stats: [number, number, number]) => void;
+}
+
+function ParticleField({ realParticles, capacity, syntheticMode, onStatsUpdate }: ParticleFieldProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
-  // Allocate per-instance attribute buffers once
-  const { iPosition, iSize, iColor, iCaptured } = useMemo(() => {
-    return {
-      iPosition: new Float32Array(capacity * 3),
-      iSize: new Float32Array(capacity),
-      iColor: new Float32Array(capacity * 3),
-      iCaptured: new Float32Array(capacity),
-    };
-  }, [capacity]);
+  const { iPosition, iSize, iColor, iCaptured, iFlashAge } = useMemo(() => ({
+    iPosition: new Float32Array(capacity * 3),
+    iSize: new Float32Array(capacity),
+    iColor: new Float32Array(capacity * 3),
+    iCaptured: new Float32Array(capacity),
+    iFlashAge: new Float32Array(capacity),
+  }), [capacity]);
 
-  // Custom shader material — survives strict-mode remounts via useMemo
   const material = useMemo(
     () =>
       new THREE.ShaderMaterial({
@@ -269,28 +481,50 @@ function ParticleField({ particles, capacity, syntheticMode }: ParticleFieldProp
     []
   );
 
+  // Track stats with throttled callbacks to avoid React thrash
+  const statsRef = useRef<[number, number, number]>([0, 0, 0]);
+  const lastStatsTimeRef = useRef(0);
+
   useFrame(({ clock }) => {
     if (!meshRef.current) return;
     const m = meshRef.current;
 
-    // In synthetic mode, regenerate demo particles each frame so they flow
-    const activeParticles = syntheticMode
-      ? generateDemoParticles(450, clock.elapsedTime)
-      : particles;
+    let activeParticles: ParticlePoint[];
+    let activeFlashAges: Float32Array;
+    let activeStats: [number, number, number];
+
+    if (syntheticMode) {
+      const out = generateRealisticParticles(capacity, clock.elapsedTime);
+      activeParticles = out.particles;
+      activeFlashAges = out.flashAges;
+      activeStats = out.captureStats;
+    } else {
+      activeParticles = realParticles;
+      activeFlashAges = new Float32Array(activeParticles.length).fill(-1);
+      // Real-data stats — count captured by stage from status field (approx)
+      activeStats = [0, 0, 0];
+      activeParticles.forEach(p => {
+        if (p.status === 'captured') {
+          // Bucket by x position into stage 0/1/2
+          if (p.x < 300) activeStats[0]++;
+          else if (p.x < 488) activeStats[1]++;
+          else activeStats[2]++;
+        }
+      });
+    }
 
     const n = Math.min(activeParticles.length, capacity);
 
     for (let i = 0; i < n; i++) {
       const p = activeParticles[i];
-      const [wx, wy, wz] = particleToWorld(p);
+      const [wx, , wz] = particleToWorld(p);
+      const wy = Math.sin(i * 7.31 + clock.elapsedTime * 0.6) * 0.10;
+
       iPosition[i * 3 + 0] = wx;
-      // Add a small deterministic 3D dispersion in Y so particles aren't a flat sheet
-      iPosition[i * 3 + 1] = wy + Math.sin(i * 7.31 + clock.elapsedTime * 0.8) * 0.12;
+      iPosition[i * 3 + 1] = wy;
       iPosition[i * 3 + 2] = wz;
 
-      // Size: clamp d_p_um to [5, 500] then map to world scale [0.012, 0.045]
-      const d = Math.max(5, Math.min(500, p.d_p_um));
-      iSize[i] = 0.012 + (d - 5) / 495 * 0.033;
+      iSize[i] = diameterToWorldSize(p.d_p_um);
 
       const [r, g, b] = speciesColor(p.species);
       iColor[i * 3 + 0] = r;
@@ -298,20 +532,26 @@ function ParticleField({ particles, capacity, syntheticMode }: ParticleFieldProp
       iColor[i * 3 + 2] = b;
 
       iCaptured[i] = p.status === 'captured' ? 1.0 : 0.0;
+      iFlashAge[i] = activeFlashAges[i] ?? -1;
     }
-
-    // Hide unused instances by zeroing their size
     for (let i = n; i < capacity; i++) {
       iSize[i] = 0;
     }
 
-    // Push attribute updates to GPU
     const geom = m.geometry;
     (geom.attributes.iPosition as THREE.InstancedBufferAttribute).needsUpdate = true;
     (geom.attributes.iSize as THREE.InstancedBufferAttribute).needsUpdate = true;
     (geom.attributes.iColor as THREE.InstancedBufferAttribute).needsUpdate = true;
     (geom.attributes.iCaptured as THREE.InstancedBufferAttribute).needsUpdate = true;
+    (geom.attributes.iFlashAge as THREE.InstancedBufferAttribute).needsUpdate = true;
     m.count = n;
+
+    // Throttle stats updates to ~4 Hz to avoid React rerender thrash
+    statsRef.current = activeStats;
+    if (onStatsUpdate && clock.elapsedTime - lastStatsTimeRef.current > 0.25) {
+      onStatsUpdate(activeStats);
+      lastStatsTimeRef.current = clock.elapsedTime;
+    }
   });
 
   return (
@@ -326,59 +566,21 @@ function ParticleField({ particles, capacity, syntheticMode }: ParticleFieldProp
         <instancedBufferAttribute attach="attributes-iSize" args={[iSize, 1]} />
         <instancedBufferAttribute attach="attributes-iColor" args={[iColor, 3]} />
         <instancedBufferAttribute attach="attributes-iCaptured" args={[iCaptured, 1]} />
+        <instancedBufferAttribute attach="attributes-iFlashAge" args={[iFlashAge, 1]} />
       </sphereGeometry>
     </instancedMesh>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-//  Top-level WebGL view
+//  Top-level WebGL view with HUD legend + live capture statistics
 // ─────────────────────────────────────────────────────────────────────────
 
 interface WebGLCascadeViewProps {
   state: HydrosDisplayState | null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-//  Synthetic particle fallback — drives a credible-looking demo when no
-//  scenario data is available (backend not running, scenario not started).
-//  Produces a stable seeded particle distribution flowing through the stages
-//  with deterministic positions so the scene reads as "alive" in screenshots.
-// ─────────────────────────────────────────────────────────────────────────
-
-function generateDemoParticles(count: number, t: number): ParticlePoint[] {
-  const particles: ParticlePoint[] = [];
-  const species = ['PP', 'PE', 'PET'];
-  const sizes = [500, 100, 5];
-  for (let i = 0; i < count; i++) {
-    // Walk particle through full X range with phase offset; wrap at end.
-    const phase = (i / count + t * 0.05) % 1.0;
-    const xSvg = SVG_X_MIN + phase * SVG_X_RANGE;
-    // Determine which stage this x falls in
-    let stageIdx = 0;
-    if (xSvg > 306) stageIdx = 1;
-    if (xSvg > 494) stageIdx = 2;
-    const stg = SVG_STAGE_X[stageIdx];
-    // Local progress within stage; radial position tapers toward apex
-    const localPhase = (xSvg - stg.xStart) / (stg.xEnd - stg.xStart);
-    const r = (Math.sin(i * 12.97 + phase * 6.28) * 0.6 + 0.4) * (0.4 + (1 - localPhase) * 0.6);
-    const ySvg = SVG_CY + r * (SVG_BORE_BOT - SVG_CY) * (i % 2 === 0 ? 1 : -1);
-    const sizeIdx = i % 3;
-    // Captured if past apex and r > threshold (mimics filtration)
-    const captured = localPhase > 0.85 && Math.abs(r) > 0.35;
-    particles.push({
-      x: xSvg,
-      y: ySvg,
-      species: species[sizeIdx],
-      d_p_um: sizes[sizeIdx],
-      status: captured ? 'captured' : 'in_transit',
-    });
-  }
-  return particles;
-}
-
 export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
-  // Aggregate all particle streams into one buffer per render
   const realParticles = useMemo(() => {
     const streams = state?.particleStreams;
     if (!streams) return [];
@@ -387,9 +589,6 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
 
   const hasRealData = realParticles.length > 0;
 
-  // HydrosDisplayState exposes single eField + clog values; per-stage intensity
-  // is derived by the stage's mesh multiplier (S1=0.4, S2=0.7, S3=1.0) — the same
-  // convention ConicalCascadeView uses for its radial field-line rendering.
   const eField = state?.eField ?? 0;
   const clog = state?.clog ?? 0;
   const eFieldArr: number[] = [
@@ -399,31 +598,43 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
   ];
   const clogArr: number[] = [clog, clog, clog];
 
+  const [captureStats, setCaptureStats] = useState<[number, number, number]>([0, 0, 0]);
+
   return (
-    <div style={{ width: '100%', height: '100%', background: '#080D18' }}>
+    <div style={{ width: '100%', height: '100%', background: '#080D18', position: 'relative' }}>
       <Canvas
         camera={{ position: [1.6, 0.9, 2.0], fov: 36 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
-        {/* Lighting rig */}
         <ambientLight intensity={0.4} />
         <hemisphereLight color="#88AACC" groundColor="#1E293B" intensity={0.55} />
-        <directionalLight position={[3, 4, 2]} intensity={1.3} color="#FFFFFF" castShadow />
+        <directionalLight position={[3, 4, 2]} intensity={1.3} color="#FFFFFF" />
         <directionalLight position={[-2, 1, -3]} intensity={0.5} color="#7DD3FC" />
-        <pointLight position={[0, 0, 0]} intensity={0.6} color="#FBBF24" distance={2} />
+        <pointLight position={[0, 0, 0]} intensity={0.7} color="#FBBF24" distance={2} />
         <Environment preset="warehouse" background={false} />
 
-        {/* Reactor */}
         <ReactorHousing />
-        <ConicalStage stageIdx={0} eField={eFieldArr[0] ?? 0} clogLevel={clogArr[0] ?? 0} />
-        <ConicalStage stageIdx={1} eField={eFieldArr[1] ?? 0} clogLevel={clogArr[1] ?? 0} />
-        <ConicalStage stageIdx={2} eField={eFieldArr[2] ?? 0} clogLevel={clogArr[2] ?? 0} />
 
-        {/* Particles — synthetic demo when no real scenario data is available */}
-        <ParticleField particles={realParticles} capacity={1500} syntheticMode={!hasRealData} />
+        <ConicalStage stageIdx={0} eField={eFieldArr[0]} clogLevel={clogArr[0]} />
+        <ConicalStage stageIdx={1} eField={eFieldArr[1]} clogLevel={clogArr[1]} />
+        <ConicalStage stageIdx={2} eField={eFieldArr[2]} clogLevel={clogArr[2]} />
 
-        {/* Controls */}
+        <StageLabel stageIdx={0} />
+        <StageLabel stageIdx={1} />
+        <StageLabel stageIdx={2} />
+
+        <ExtractionChannel stageIdx={0} />
+        <ExtractionChannel stageIdx={1} />
+        <ExtractionChannel stageIdx={2} />
+
+        <ParticleField
+          realParticles={realParticles}
+          capacity={1500}
+          syntheticMode={!hasRealData}
+          onStatsUpdate={setCaptureStats}
+        />
+
         <OrbitControls
           enablePan={false}
           minDistance={1.5}
@@ -433,23 +644,65 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
           autoRotateSpeed={0.2}
         />
       </Canvas>
-      {/* HUD overlay */}
+
+      {/* Top-left HUD: stack identity + capture stats */}
       <div
         style={{
           position: 'absolute',
           top: 12,
           left: 16,
-          padding: '6px 10px',
-          background: 'rgba(8, 13, 24, 0.7)',
+          padding: '8px 12px',
+          background: 'rgba(8, 13, 24, 0.75)',
           border: '1px solid rgba(56, 189, 248, 0.4)',
           borderRadius: 4,
           color: '#7DD3FC',
-          font: '11px/1.35 "JetBrains Mono", "Fira Code", monospace',
+          font: '11px/1.45 "JetBrains Mono", "Fira Code", monospace',
+          pointerEvents: 'none',
+          minWidth: 220,
+        }}
+      >
+        <div style={{ color: '#A5F3FC', marginBottom: 4, fontWeight: 600 }}>
+          WebGL 3D · Three.js / R3F · custom GLSL shaders
+        </div>
+        <div style={{ color: '#CBD5E1', opacity: 0.85 }}>
+          {hasRealData ? `${realParticles.length} particles · live` : '1500 particles · synthetic demo'}
+          {' · '}
+          {Math.round(eFieldArr.reduce((a, b) => a + b, 0) * 100 / 3)}% mean field
+        </div>
+        <div style={{ marginTop: 6, borderTop: '1px solid rgba(56, 189, 248, 0.2)', paddingTop: 6 }}>
+          <div style={{ color: '#94A3B8', fontSize: 10, marginBottom: 3 }}>CAPTURED PER STAGE</div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <span style={{ color: '#FB923C' }}>S1: {captureStats[0]}</span>
+            <span style={{ color: '#FBBF24' }}>S2: {captureStats[1]}</span>
+            <span style={{ color: '#38BDF8' }}>S3: {captureStats[2]}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom-left HUD: particle size legend (sqrt mapping, log-scale physical) */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 12,
+          left: 16,
+          padding: '8px 12px',
+          background: 'rgba(8, 13, 24, 0.75)',
+          border: '1px solid rgba(148, 163, 184, 0.3)',
+          borderRadius: 4,
+          color: '#CBD5E1',
+          font: '10px/1.5 "JetBrains Mono", "Fira Code", monospace',
           pointerEvents: 'none',
         }}
       >
-        WebGL 3D · Three.js / R3F · custom GLSL shaders<br />
-        {hasRealData ? `${realParticles.length} particles · live` : '450 particles · synthetic demo'} · {Math.round(eFieldArr.reduce((a, b) => a + b, 0) * 100 / 3)}% mean field
+        <div style={{ color: '#94A3B8', marginBottom: 3 }}>PARTICLE SIZE LEGEND</div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <span style={{ color: '#66B3FF' }}>● 5 µm PET</span>
+          <span style={{ color: '#4DD89D', fontSize: 12 }}>● 100 µm PE</span>
+          <span style={{ color: '#FA8033', fontSize: 14 }}>● 500 µm PP</span>
+        </div>
+        <div style={{ color: '#64748B', fontSize: 9, marginTop: 2 }}>
+          sqrt-mapped (100× physical · 10× visual)
+        </div>
       </div>
     </div>
   );
