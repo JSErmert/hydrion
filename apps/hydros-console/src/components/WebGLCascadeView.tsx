@@ -193,12 +193,13 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
         <meshStandardMaterial color={cloggedColor} metalness={0.7} roughness={0.4} />
       </mesh>
 
-      {/* Inter-stage transition disc — visible gap with central aperture.
-          Shows where one stage ends and the next begins. */}
+      {/* Inter-stage transition collar — thin metallic ring matching the
+          housing flange material so it reads as a flow-restriction baffle,
+          not a black artifact in the middle of the bore. */}
       {stageIdx < 2 && (
-        <mesh position={[length / 2 + 0.04, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-          <ringGeometry args={[apexRadius + 0.02, 0.55, 32]} />
-          <meshStandardMaterial color="#1E293B" metalness={0.6} roughness={0.3} side={THREE.DoubleSide} />
+        <mesh position={[length / 2 + 0.04, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+          <torusGeometry args={[apexRadius + 0.05, 0.018, 12, 32]} />
+          <meshStandardMaterial color="#94A3B8" metalness={0.85} roughness={0.25} />
         </mesh>
       )}
     </group>
@@ -240,26 +241,43 @@ interface ExtractionChannelProps {
   stageIdx: 0 | 1 | 2;
 }
 
-function ExtractionChannel({ stageIdx }: ExtractionChannelProps) {
+// World-coordinate position helper for an extraction channel.  Channels sit
+// just outside the housing bottom wall at a moderate staircase offset, with
+// captured particles rendered AT the channel position so storage stays
+// visually integrated with the device, not floating in empty space.
+function channelWorldPos(stageIdx: 0 | 1 | 2): { x: number; y: number; z: number; length: number } {
   const stg = SVG_STAGE_X[stageIdx];
   const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
   const length = nx(stg.xEnd) - nx(stg.xStart);
-  // Each subsequent channel is lower (matches SVG chY staircase)
-  const zPos = 0.85 + stageIdx * 0.12;
-  const yPos = -0.05 - stageIdx * 0.02;
+  // Just below the housing wall (bore radius = 0.62), with each stage
+  // descending slightly to create a visible staircase.
+  const z = 0.70 + stageIdx * 0.06;
+  const y = -0.03 - stageIdx * 0.015;
+  return { x: xMid, y, z, length };
+}
+
+function ExtractionChannel({ stageIdx }: ExtractionChannelProps) {
+  const stg = SVG_STAGE_X[stageIdx];
+  const pos = channelWorldPos(stageIdx);
   const colorObj = useMemo(() => new THREE.Color(stg.color), [stg.color]);
 
   return (
-    <group position={[xMid, yPos, zPos]}>
-      {/* Open trough — open top, closed sides + bottom */}
+    <group position={[pos.x, pos.y, pos.z]}>
+      {/* Collection trough — open top, closed sides + bottom */}
       <mesh>
-        <boxGeometry args={[length * 0.95, 0.06, 0.18]} />
-        <meshStandardMaterial color="#1E293B" metalness={0.6} roughness={0.5} />
+        <boxGeometry args={[pos.length * 0.95, 0.06, 0.18]} />
+        <meshStandardMaterial color="#334155" metalness={0.7} roughness={0.45} />
       </mesh>
-      {/* Inner highlight strip — colored thin line showing which stage owns the channel */}
+      {/* Inner highlight strip — color-codes the channel to its stage */}
       <mesh position={[0, 0.035, 0]}>
-        <boxGeometry args={[length * 0.92, 0.005, 0.15]} />
-        <meshStandardMaterial color={colorObj} emissive={colorObj} emissiveIntensity={0.5} />
+        <boxGeometry args={[pos.length * 0.92, 0.005, 0.15]} />
+        <meshStandardMaterial color={colorObj} emissive={colorObj} emissiveIntensity={0.55} />
+      </mesh>
+      {/* Drop chute — short tapered connector from the housing wall down to
+          the channel, communicating that captured particles fall here. */}
+      <mesh position={[0, 0.05, -0.08]} rotation={[Math.PI / 6, 0, 0]}>
+        <boxGeometry args={[pos.length * 0.4, 0.02, 0.06]} />
+        <meshStandardMaterial color="#64748B" metalness={0.7} roughness={0.4} transparent opacity={0.6} />
       </mesh>
     </group>
   );
@@ -366,8 +384,9 @@ function diameterToWorldSize(d_p_um: number): number {
 
 interface SyntheticOutput {
   particles: ParticlePoint[];
-  flashAges: Float32Array;      // per-particle "time since capture", or <0 if not captured
-  captureStats: [number, number, number];
+  flashAges: Float32Array;
+  worldPositions: Float32Array;      // pre-computed world (x, y, z) per particle — bypasses SVG mapping
+  fateDistribution: [number, number, number, number];  // total particles assigned to S1, S2, S3, pass-through
 }
 
 // Apex phase positions (when each stage's apex is reached in the particle's
@@ -377,50 +396,45 @@ const STAGE_APEX_PHASES = [0.31, 0.62, 0.93];
 function generateRealisticParticles(count: number, t: number): SyntheticOutput {
   const particles: ParticlePoint[] = [];
   const flashAges = new Float32Array(count);
-  const captureStats: [number, number, number] = [0, 0, 0];
+  const worldPositions = new Float32Array(count * 3);
+  const fateDistribution: [number, number, number, number] = [0, 0, 0, 0];  // S1, S2, S3, passthrough
   const species = ['PET', 'PE', 'PP'];
   const sizes = [5, 100, 500];
 
   for (let i = 0; i < count; i++) {
     const seed = i * 7331.7;
-    // Per-particle speed (deterministic): 0.06 – 0.10 cycles/sec
     const speed = 0.06 + ((Math.sin(seed) + 1) * 0.5) * 0.04;
     const startOffset = i / count;
 
-    // Deterministic capture-fate from index hash:
-    //   30% captured at S1, 25% at S2, 20% at S3, 25% pass through
+    // Deterministic capture-fate (depends only on i, not on time — STABLE)
     const captureRoll = (Math.sin(seed * 1.3 + 0.7) + 1) * 0.5;
     let captureStage = -1;
-    if (captureRoll < 0.30) captureStage = 0;
-    else if (captureRoll < 0.55) captureStage = 1;
-    else if (captureRoll < 0.75) captureStage = 2;
+    if (captureRoll < 0.30) { captureStage = 0; fateDistribution[0]++; }
+    else if (captureRoll < 0.55) { captureStage = 1; fateDistribution[1]++; }
+    else if (captureRoll < 0.75) { captureStage = 2; fateDistribution[2]++; }
+    else { fateDistribution[3]++; }
 
     const phase = (startOffset + t * speed) % 1.0;
     const sizeClass = i % 3;
     const d_p_um = sizes[sizeClass];
     const spec = species[sizeClass];
 
+    let wx: number, wy: number, wz: number;
+    let status: ParticlePoint['status'];
+
     if (captureStage !== -1 && phase > STAGE_APEX_PHASES[captureStage]) {
-      // Captured — position in extraction channel
-      const stg = SVG_STAGE_X[captureStage];
-      // Spread captured particles along channel length
+      // CAPTURED — position directly in world coords inside the extraction channel
+      const ch = channelWorldPos(captureStage as 0 | 1 | 2);
       const inChannel = (Math.sin(seed * 2.7) + 1) * 0.5;
-      const xInChannel = stg.xStart + inChannel * (stg.apexX - stg.xStart);
-      // y is in the channel below the bore — use stg.chY
-      particles.push({
-        x: xInChannel,
-        y: stg.chY,
-        species: spec,
-        d_p_um,
-        status: 'captured',
-      });
-      captureStats[captureStage]++;
-      // Compute time since this particle's capture event (for flash decay)
+      wx = ch.x - ch.length * 0.45 + inChannel * ch.length * 0.9;
+      wy = ch.y + 0.04 + (Math.sin(i * 5.3) * 0.5 + 0.5) * 0.018;
+      wz = ch.z + (Math.cos(seed * 4.1) * 0.5) * 0.05;
+      status = 'captured';
+
       const capturePhaseAge = phase - STAGE_APEX_PHASES[captureStage];
-      const ageInSec = capturePhaseAge / speed;
-      flashAges[i] = ageInSec;
+      flashAges[i] = capturePhaseAge / speed;
     } else {
-      // In transit — flowing through the bore
+      // IN TRANSIT — flowing through the bore (world coords mapped from SVG-space flow path)
       const xSvg = SVG_X_MIN + phase * SVG_X_RANGE;
       let stageIdx = 0;
       if (xSvg > 306) stageIdx = 1;
@@ -428,25 +442,32 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const stg = SVG_STAGE_X[stageIdx];
       const localPhase = (xSvg - stg.xStart) / (stg.xEnd - stg.xStart);
 
-      // Radial position: random within bore, biased toward bottom near apex
-      const rTurbulence = Math.sin(seed * 3.7 + t * 0.8) * 0.65;
-      // Funnel effect — as localPhase → 1, particles concentrate toward bottom-right
-      const apexBias = Math.max(0, localPhase - 0.6) * 1.5;
+      const rTurbulence = Math.sin(seed * 3.7 + t * 0.8) * 0.55;
+      const apexBias = Math.max(0, localPhase - 0.6) * 1.2;
       const r = rTurbulence * (1 - localPhase * 0.4) + apexBias;
-      const ySvg = SVG_CY + r * (SVG_BORE_BOT - SVG_CY) * 0.6;
 
-      particles.push({
-        x: xSvg,
-        y: ySvg,
-        species: spec,
-        d_p_um,
-        status: 'in_transit',
-      });
-      flashAges[i] = -1;  // not captured
+      wx = nx(xSvg);
+      wy = Math.sin(i * 7.31 + t * 0.6) * 0.10;
+      // Constrain z to inside housing (radius 0.62)
+      wz = r * 0.48;
+      status = 'in_transit';
+      flashAges[i] = -1;
     }
+
+    worldPositions[i * 3 + 0] = wx;
+    worldPositions[i * 3 + 1] = wy;
+    worldPositions[i * 3 + 2] = wz;
+
+    particles.push({
+      x: 0,        // SVG coords unused now; world coords are authoritative
+      y: 0,
+      species: spec,
+      d_p_um,
+      status,
+    });
   }
 
-  return { particles, flashAges, captureStats };
+  return { particles, flashAges, worldPositions, fateDistribution };
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -457,10 +478,10 @@ interface ParticleFieldProps {
   realParticles: ParticlePoint[];
   capacity: number;
   syntheticMode: boolean;
-  onStatsUpdate?: (stats: [number, number, number]) => void;
+  onFateUpdate?: (dist: [number, number, number, number]) => void;
 }
 
-function ParticleField({ realParticles, capacity, syntheticMode, onStatsUpdate }: ParticleFieldProps) {
+function ParticleField({ realParticles, capacity, syntheticMode, onFateUpdate }: ParticleFieldProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   const { iPosition, iSize, iColor, iCaptured, iFlashAge } = useMemo(() => ({
@@ -481,9 +502,9 @@ function ParticleField({ realParticles, capacity, syntheticMode, onStatsUpdate }
     []
   );
 
-  // Track stats with throttled callbacks to avoid React thrash
-  const statsRef = useRef<[number, number, number]>([0, 0, 0]);
-  const lastStatsTimeRef = useRef(0);
+  // The fate distribution is deterministic and stable per generation; report
+  // it once on first frame and skip per-frame updates to avoid React thrash.
+  const fateReported = useRef(false);
 
   useFrame(({ clock }) => {
     if (!meshRef.current) return;
@@ -491,38 +512,42 @@ function ParticleField({ realParticles, capacity, syntheticMode, onStatsUpdate }
 
     let activeParticles: ParticlePoint[];
     let activeFlashAges: Float32Array;
-    let activeStats: [number, number, number];
+    let activeWorldPositions: Float32Array | null;
 
     if (syntheticMode) {
       const out = generateRealisticParticles(capacity, clock.elapsedTime);
       activeParticles = out.particles;
       activeFlashAges = out.flashAges;
-      activeStats = out.captureStats;
+      activeWorldPositions = out.worldPositions;
+      if (!fateReported.current && onFateUpdate) {
+        onFateUpdate(out.fateDistribution);
+        fateReported.current = true;
+      }
     } else {
       activeParticles = realParticles;
       activeFlashAges = new Float32Array(activeParticles.length).fill(-1);
-      // Real-data stats — count captured by stage from status field (approx)
-      activeStats = [0, 0, 0];
-      activeParticles.forEach(p => {
-        if (p.status === 'captured') {
-          // Bucket by x position into stage 0/1/2
-          if (p.x < 300) activeStats[0]++;
-          else if (p.x < 488) activeStats[1]++;
-          else activeStats[2]++;
-        }
-      });
+      activeWorldPositions = null;
     }
 
     const n = Math.min(activeParticles.length, capacity);
 
     for (let i = 0; i < n; i++) {
       const p = activeParticles[i];
-      const [wx, , wz] = particleToWorld(p);
-      const wy = Math.sin(i * 7.31 + clock.elapsedTime * 0.6) * 0.10;
 
-      iPosition[i * 3 + 0] = wx;
-      iPosition[i * 3 + 1] = wy;
-      iPosition[i * 3 + 2] = wz;
+      if (activeWorldPositions) {
+        // Synthetic mode: use pre-computed world coords directly (handles both
+        // in-transit AND captured particles, with captured placed in channels).
+        iPosition[i * 3 + 0] = activeWorldPositions[i * 3 + 0];
+        iPosition[i * 3 + 1] = activeWorldPositions[i * 3 + 1];
+        iPosition[i * 3 + 2] = activeWorldPositions[i * 3 + 2];
+      } else {
+        // Real-data mode: map SVG-coord particles through nx/nz with bore-radius scaling
+        const [wx, , wz] = particleToWorld(p);
+        iPosition[i * 3 + 0] = wx;
+        iPosition[i * 3 + 1] = Math.sin(i * 7.31 + clock.elapsedTime * 0.6) * 0.10;
+        // Scale wz to fit within housing radius (0.62)
+        iPosition[i * 3 + 2] = wz * 0.55;
+      }
 
       iSize[i] = diameterToWorldSize(p.d_p_um);
 
@@ -545,13 +570,6 @@ function ParticleField({ realParticles, capacity, syntheticMode, onStatsUpdate }
     (geom.attributes.iCaptured as THREE.InstancedBufferAttribute).needsUpdate = true;
     (geom.attributes.iFlashAge as THREE.InstancedBufferAttribute).needsUpdate = true;
     m.count = n;
-
-    // Throttle stats updates to ~4 Hz to avoid React rerender thrash
-    statsRef.current = activeStats;
-    if (onStatsUpdate && clock.elapsedTime - lastStatsTimeRef.current > 0.25) {
-      onStatsUpdate(activeStats);
-      lastStatsTimeRef.current = clock.elapsedTime;
-    }
   });
 
   return (
@@ -598,7 +616,7 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
   ];
   const clogArr: number[] = [clog, clog, clog];
 
-  const [captureStats, setCaptureStats] = useState<[number, number, number]>([0, 0, 0]);
+  const [fateDist, setFateDist] = useState<[number, number, number, number]>([0, 0, 0, 0]);
 
   return (
     <div style={{ width: '100%', height: '100%', background: '#080D18', position: 'relative' }}>
@@ -632,7 +650,7 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
           realParticles={realParticles}
           capacity={1500}
           syntheticMode={!hasRealData}
-          onStatsUpdate={setCaptureStats}
+          onFateUpdate={setFateDist}
         />
 
         <OrbitControls
@@ -670,11 +688,12 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
           {Math.round(eFieldArr.reduce((a, b) => a + b, 0) * 100 / 3)}% mean field
         </div>
         <div style={{ marginTop: 6, borderTop: '1px solid rgba(56, 189, 248, 0.2)', paddingTop: 6 }}>
-          <div style={{ color: '#94A3B8', fontSize: 10, marginBottom: 3 }}>CAPTURED PER STAGE</div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <span style={{ color: '#FB923C' }}>S1: {captureStats[0]}</span>
-            <span style={{ color: '#FBBF24' }}>S2: {captureStats[1]}</span>
-            <span style={{ color: '#38BDF8' }}>S3: {captureStats[2]}</span>
+          <div style={{ color: '#94A3B8', fontSize: 10, marginBottom: 3 }}>FILTRATION TARGETS · STABLE FATE DISTRIBUTION</div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ color: '#FB923C' }}>S1: {fateDist[0]}</span>
+            <span style={{ color: '#FBBF24' }}>S2: {fateDist[1]}</span>
+            <span style={{ color: '#38BDF8' }}>S3: {fateDist[2]}</span>
+            <span style={{ color: '#94A3B8' }}>pass-through: {fateDist[3]}</span>
           </div>
         </div>
       </div>
