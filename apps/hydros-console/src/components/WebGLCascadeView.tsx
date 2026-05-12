@@ -774,10 +774,10 @@ function onMeshWallPosition(
   const localPhase = 0.82 + ((Math.sin(seed * 0.97) + 1) * 0.5) * 0.16;
   const coneR = bezierConeRadius(localPhase, baseRCone, apexRCone);
 
-  // Sit ON the wall — radially at coneR * 0.85, just inside the visible
-  // mesh so the particle reads as "stuck against the surface", not floating
-  // in the cone interior.
-  const r = Math.max(0.02, coneR * 0.85 - particleSize * 0.3);
+  // Sit ON the wall — radially at coneR * 0.93, right up against the
+  // visible mesh so the particle reads as "crusted onto the surface",
+  // not floating loose in the cone interior.
+  const r = Math.max(0.02, coneR * 0.93 - particleSize * 0.25);
 
   // Stable angular position around the cone axis (per particle)
   const angle = seed * 2.31;
@@ -826,12 +826,12 @@ function computeRealParticleWorldPos(
     const transitSeed = (Math.sin(seed) + 1) * 0.5;
     const particleSize = diameterToWorldSize(p.d_p_um);
 
-    if (transitSeed < 0.40) {
+    if (transitSeed < 0.55) {
       // ON THE MESH WALL near apex — accumulated capture load that backflush
       // would dislodge.  This is the fouling layer visible on each stage.
       return onMeshWallPosition(stageIdx, seed, particleSize);
     }
-    if (transitSeed < 0.55) {
+    if (transitSeed < 0.70) {
       // In the ejection pipe between cone apex (z=SHEAR_Z) and channel z
       const pipeT = (Math.cos(seed * 0.5) + 1) * 0.5;
       return [
@@ -918,7 +918,10 @@ interface SyntheticOutput {
 
 // Apex phase positions (when each stage's apex is reached in the particle's
 // normalised travel through the reactor):
-const STAGE_APEX_PHASES = [0.31, 0.62, 0.93];
+// Earlier thresholds so each stage has a visible captured population in the
+// synthetic demo.  Previously S3 only spent 7% of phase in captured state,
+// which meant the S3 mesh layer was nearly invisible.
+const STAGE_APEX_PHASES = [0.22, 0.50, 0.78];
 
 function generateRealisticParticles(count: number, t: number): SyntheticOutput {
   const particles: ParticlePoint[] = [];
@@ -991,7 +994,7 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const transitSeed = (Math.sin(seed * 7.91) + 1) * 0.5;
       const particleSize = diameterToWorldSize(d_p_um);
 
-      if (transitSeed < 0.40) {
+      if (transitSeed < 0.55) {
         // ON MESH WALL near apex — accumulating fouling load
         const [mx, my, mz] = onMeshWallPosition(
           captureStage as 0 | 1 | 2,
@@ -999,7 +1002,7 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
           particleSize,
         );
         wx = mx; wy = my; wz = mz;
-      } else if (transitSeed < 0.55) {
+      } else if (transitSeed < 0.70) {
         // IN EJECTION PIPE — between cone apex (z=SHEAR_Z) and channel z
         const pipeT = (Math.cos(seed * 4.31) + 1) * 0.5;
         wx = apexX + (Math.cos(seed * 5.7) * 0.5) * 0.018;
