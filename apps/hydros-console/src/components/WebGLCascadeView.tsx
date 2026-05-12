@@ -65,8 +65,15 @@ function nz(ySvg: number): number {
   return ((ySvg - SVG_BORE_TOP) / (SVG_BORE_BOT - SVG_BORE_TOP)) * 2 - 1;
 }
 
-// Apex bottom-bias — matches 2D's gravity-fed extraction (apex near BORE_BOT)
-const APEX_TILT_RAD = Math.PI / 14;  // ~12.8° downward tilt per stage
+// Apex bottom-bias — matches 2D's `M xStart,64 ... apexX,243` where the cone
+// arcs from the bore TOP at upstream all the way down to the bore BOTTOM at
+// the apex.  We achieve this by applying a Z-shear to the revolved profile:
+// base stays centered on the bore axis, apex shifts toward +Z (bore bottom).
+// The bore radius is 0.62, so SHEAR_Z=0.50 puts the apex about 80% of the
+// way to the bore bottom from the axis — visibly "curved down" without
+// punching through the housing wall.
+const APEX_TILT_RAD = 0;             // legacy — no longer used (replaced by shear)
+const SHEAR_Z = 0.50;
 
 // Build a Bezier-curve profile for the conical stage's revolved mesh.
 // Inspired by the 2D canonical path
@@ -195,6 +202,35 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
     [baseRadius, apexRadius, length],
   );
 
+  // Sheared lathe geometry: revolve the profile, then shift each vertex in
+  // local Z proportional to its axial position so the base stays centered on
+  // the bore axis but the apex pulls toward +Z (bore bottom).  Apex node
+  // ends up at world Z = SHEAR_Z ≈ 80% of the way to the bore wall.
+  const shearedConeGeom = useMemo(() => {
+    const geom = new THREE.LatheGeometry(bezierProfile, 48);
+    const positions = geom.attributes.position.array as Float32Array;
+    for (let v = 0; v < positions.length; v += 3) {
+      const y = positions[v + 1];
+      const yNorm = (y + length / 2) / length;   // 0 at base, 1 at apex
+      positions[v + 2] += yNorm * SHEAR_Z;
+    }
+    geom.attributes.position.needsUpdate = true;
+    geom.computeVertexNormals();
+    return geom;
+  }, [bezierProfile, length]);
+
+  const shearedWireGeom = useMemo(() => {
+    const geom = new THREE.LatheGeometry(bezierProfile, stg.wireSegments);
+    const positions = geom.attributes.position.array as Float32Array;
+    for (let v = 0; v < positions.length; v += 3) {
+      const y = positions[v + 1];
+      const yNorm = (y + length / 2) / length;
+      positions[v + 2] += yNorm * SHEAR_Z;
+    }
+    geom.attributes.position.needsUpdate = true;
+    return geom;
+  }, [bezierProfile, length, stg.wireSegments]);
+
   // Clog-tinted shadow color for the inner cone — fouled stages darken
   const cloggedColor = useMemo(() => {
     const clogged = new THREE.Color('#3a1f1f');
@@ -211,15 +247,22 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
   });
 
   return (
-    // Rotate the whole stage around Y to tilt the apex downward (toward +Z).
-    // This replicates the 2D design's gravity-biased extraction geometry.
-    <group position={[xMid, 0, 0]} rotation={[0, APEX_TILT_RAD, 0]}>
-      {/* Outer curved filter wall — revolved Bezier profile that hangs near
-          the bore wall for the first ~40% then arcs to the apex, inspired
-          by the 2D canonical path
-            M xStart,64 C xStart+77,64 apexX-4,96 apexX,243 */}
-      <mesh rotation={[0, 0, -Math.PI / 2]}>
-        <latheGeometry args={[bezierProfile, 48]} />
+    // No group rotation — the cone's downward tilt is now achieved by
+    // shearing the LatheGeometry directly (apex shifts to +Z = bore bottom),
+    // which preserves the base at the bore axis instead of tilting the
+    // whole stage.
+    <group position={[xMid, 0, 0]}>
+      {/* Outer curved filter wall — Bezier-revolved profile that's been
+          sheared so the base sits centered on the bore axis but the apex
+          arcs all the way down to ~80% of the bore radius toward +Z (bore
+          bottom).  Matches the 2D canonical path
+            M xStart,64 C xStart+77,64 apexX-4,96 apexX,243
+          where the wall goes from bore TOP at upstream to bore BOTTOM at
+          the apex. */}
+      <mesh
+        geometry={shearedConeGeom}
+        rotation={[0, 0, -Math.PI / 2]}
+      >
         <meshStandardMaterial
           ref={fieldGlowRef}
           color={stageColor}
@@ -233,15 +276,15 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
         />
       </mesh>
 
-      {/* Inner wireframe overlay — scaled radially inward to create a visible
-          mesh THICKNESS.  Stage-specific gap (1 − innerScale) and wireframe
-          opacity encode filtration fineness: S1 has the widest gap + most
-          prominent wires (coarse), S3 the tightest + faintest (fine). */}
+      {/* Inner wireframe overlay — same shear, scaled radially inward to
+          create a visible mesh THICKNESS.  Stage-specific gap (1 − innerScale)
+          and wireframe opacity encode filtration fineness: S1 widest gap +
+          most prominent wires (coarse), S3 tightest + faintest (fine). */}
       <mesh
+        geometry={shearedWireGeom}
         rotation={[0, 0, -Math.PI / 2]}
         scale={[innerScale, 1, innerScale]}
       >
-        <latheGeometry args={[bezierProfile, stg.wireSegments]} />
         <meshBasicMaterial
           color={stageColor}
           wireframe
@@ -358,10 +401,10 @@ function EjectionPipe({ stageIdx }: { stageIdx: 0 | 1 | 2 }) {
   const stg = SVG_STAGE_X[stageIdx];
   const colorObj = useMemo(() => new THREE.Color(stg.color), [stg.color]);
 
-  const length = nx(stg.apexX) - nx(stg.xStart);
-  const xMid = (nx(stg.xStart) + nx(stg.apexX)) / 2;
-  const apexX = xMid + (length / 2) * Math.cos(APEX_TILT_RAD);
-  const apexZ = (length / 2) * Math.sin(APEX_TILT_RAD);
+  // Apex world position after the cone's shear: at the literal apexX along
+  // bore axis, sheared down to z=SHEAR_Z (near bore bottom).
+  const apexX = nx(stg.apexX);
+  const apexZ = SHEAR_Z;
 
   const pos = channelWorldPos(stageIdx);
   const zTop = apexZ;
@@ -824,12 +867,14 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const angle = seed * 1.93 + i * 0.097;
       const baseR = 0.14 + (Math.sin(seed * 3.7) * 0.5 + 0.5) * 0.38;   // [0.14, 0.52]
       const apexPullStrength = Math.max(0, (localPhase - 0.35) / 0.65); // 0..1 ramp
-      const apexPull = apexPullStrength * baseR * 0.88;
-      const r = Math.max(0.04, baseR - apexPull);
+      const r = baseR * (1 - apexPullStrength * 0.92);
+      // Drift the convergence CENTER toward +Z (bore bottom) so particles
+      // funnel into the sheared apex node, not the bore-axis center.
+      const zCenter = SHEAR_Z * apexPullStrength * 0.85;
 
       wx = nx(xSvg);
       wy = r * Math.cos(angle);
-      wz = r * Math.sin(angle);
+      wz = r * Math.sin(angle) + zCenter;
       status = 'in_transit';
       flashAges[i] = -1;
     }
