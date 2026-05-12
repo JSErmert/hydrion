@@ -52,8 +52,10 @@ const SVG_X_RANGE = SVG_X_MAX - SVG_X_MIN;
 // lengths.  S1 is the OUTERMOST (largest Z, furthest from bore wall) and the
 // LONGEST (starts upstream at S1's xStart, extends furthest right to the
 // storage convergence).  S3 is the INNERMOST (smallest Z, closest to bore)
-// and the SHORTEST (starts at S3's xStart, runs least far right).
-const CHANNEL_X_END = 1.0;
+// and the SHORTEST.  Channels now END at the same X as S3's downstream edge
+// (nx(674) = 0.828) — matches the 2D canonical where channels span SVG
+// x=118→674 exactly.
+const CHANNEL_X_END = 0.828;
 const CHANNEL_Z_BY_STAGE = [0.82, 0.76, 0.70];   // S1 outermost → S3 innermost
 
 function nx(xSvg: number): number {
@@ -415,13 +417,15 @@ function EjectionPipe({ stageIdx }: { stageIdx: 0 | 1 | 2 }) {
 
   return (
     <mesh rotation={[Math.PI / 2, 0, 0]} position={[apexX, 0, pipeMidZ]}>
-      <cylinderGeometry args={[0.022, 0.022, pipeLength, 12]} />
+      <cylinderGeometry args={[0.05, 0.05, pipeLength, 16]} />
       <meshStandardMaterial
         color={colorObj}
         emissive={colorObj}
-        emissiveIntensity={0.40}
-        metalness={0.65}
-        roughness={0.35}
+        emissiveIntensity={0.35}
+        metalness={0.55}
+        roughness={0.40}
+        transparent
+        opacity={0.78}
       />
     </mesh>
   );
@@ -532,17 +536,20 @@ interface StorageChamberProps {
   storedParticles: ReadonlyArray<StoredParticleLike>;
 }
 
-// Horizontal-cylinder storage along the bore axis, downstream-and-below the
-// three side-by-side extraction pipes.  Each pipe terminates above the
-// chamber and feeds in via a short vertical drop chute color-coded to its
-// source stage.
-const STORAGE_X_CENTER = 1.25;
-const STORAGE_Z_CENTER = 1.10;
-const STORAGE_RADIUS = 0.22;
-const STORAGE_LENGTH = 0.55;
-const STORAGE_X_LEFT = STORAGE_X_CENTER - STORAGE_LENGTH / 2;   // 0.975
-const STORAGE_X_RIGHT = STORAGE_X_CENTER + STORAGE_LENGTH / 2;  // 1.525
-const STORAGE_TOP_Z = STORAGE_Z_CENTER - STORAGE_RADIUS;        // 0.88
+// Horizontal-cylinder storage chamber sitting JUST BELOW the three extraction
+// pipes, with its right edge aligned to S3's downstream end (CHANNEL_X_END).
+// Pulled upward (closer to the channels) and tucked inside the device's X
+// footprint so it reads as integrated, not as a separate downstream tank.
+const STORAGE_LENGTH = 0.50;
+const STORAGE_X_RIGHT = CHANNEL_X_END;                          // 0.828 = S3 end
+const STORAGE_X_LEFT = STORAGE_X_RIGHT - STORAGE_LENGTH;        // 0.328
+const STORAGE_X_CENTER = (STORAGE_X_LEFT + STORAGE_X_RIGHT) / 2; // 0.578
+const STORAGE_Z_CENTER = 1.00;                                  // up from 1.10
+const STORAGE_RADIUS = 0.15;                                    // slim so it
+                                                                // doesn't punch
+                                                                // through the
+                                                                // pipes above
+const STORAGE_TOP_Z = STORAGE_Z_CENTER - STORAGE_RADIUS;        // 0.85
 
 function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
   const clampedFill = Math.max(0, Math.min(1, fill));
@@ -839,13 +846,28 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
     let status: ParticlePoint['status'];
 
     if (captureStage !== -1 && phase > STAGE_APEX_PHASES[captureStage]) {
-      // CAPTURED — placed along this stage's box-shaped pipe.  Each pipe is
-      // long in X (channel length), narrow in Y (0.05), shallow in Z (0.07).
+      // CAPTURED — either visibly transiting through the ejection pipe from
+      // cone apex down to its channel (30%), or already settled inside the
+      // channel box (70%).  The in-pipe particles communicate the flow path:
+      // node → thick ejection pipe → long collection tube.
       const ch = channelWorldPos(captureStage as 0 | 1 | 2);
-      const inChannel = (Math.sin(seed * 2.7) + 1) * 0.5;
-      wx = ch.x - ch.length * 0.46 + inChannel * ch.length * 0.92;
-      wy = ch.y + (Math.sin(i * 5.3) * 0.5) * 0.030;
-      wz = ch.z + (Math.cos(seed * 4.1) * 0.5) * 0.040;
+      const stgCaptured = SVG_STAGE_X[captureStage as 0 | 1 | 2];
+      const apexX = nx(stgCaptured.apexX);
+      const transitSeed = (Math.sin(seed * 7.91) + 1) * 0.5;
+
+      if (transitSeed < 0.30) {
+        // IN EJECTION PIPE — between cone apex (z=SHEAR_Z) and channel z
+        const pipeT = (Math.cos(seed * 4.31) + 1) * 0.5;
+        wx = apexX + (Math.cos(seed * 5.7) * 0.5) * 0.018;
+        wy = (Math.sin(seed * 6.1) * 0.5) * 0.018;
+        wz = SHEAR_Z + pipeT * (ch.z - SHEAR_Z);
+      } else {
+        // IN CHANNEL — distributed along the long collection tube
+        const inChannel = (Math.sin(seed * 2.7) + 1) * 0.5;
+        wx = ch.x - ch.length * 0.46 + inChannel * ch.length * 0.92;
+        wy = ch.y + (Math.sin(i * 5.3) * 0.5) * 0.030;
+        wz = ch.z + (Math.cos(seed * 4.1) * 0.5) * 0.040;
+      }
       status = 'captured';
 
       const capturePhaseAge = phase - STAGE_APEX_PHASES[captureStage];
