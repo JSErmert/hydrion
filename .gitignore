@@ -42,6 +42,18 @@ build/
 .superpowers/
 .pytest_cache/
 
+# Internal AI-orchestration scaffolding — agent instructions, prompts,
+# milestone-process artifacts.  These are private working documents not
+# intended for a public audience.
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+docs/15_CLAUDE_INITIALIZATION_CHECKLIST.md
+docs/orchestration/
+docs/superpowers/
+docs/prompts/
+pr_body.md
+
 # Editor
 .vscode/
 .idea/
