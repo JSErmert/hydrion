@@ -96,6 +96,7 @@ app.add_middleware(
 
 # Serve built React frontend — must be mounted AFTER all /api routes
 _DIST = Path(__file__).parent.parent.parent / "apps" / "hydros-console" / "dist"
+_SCENARIOS_DIR = Path(__file__).resolve().parent.parent / "scenarios" / "examples"
 
 
 @app.post("/api/run")
@@ -277,7 +278,7 @@ def get_metrics(run_id: str):
 @app.get("/api/scenarios")
 def list_scenarios():
     """Return metadata for all available scenario YAML files."""
-    examples_dir = Path("hydrion/scenarios/examples")
+    examples_dir = _SCENARIOS_DIR
     if not examples_dir.exists():
         return []
     result = []
@@ -298,7 +299,7 @@ def list_scenarios():
 @app.post("/api/scenarios/run")
 def run_scenario(req: ScenarioRunRequest) -> Dict[str, Any]:
     """Execute a named scenario and return the full ScenarioExecutionHistory."""
-    examples_dir = Path("hydrion/scenarios/examples")
+    examples_dir = _SCENARIOS_DIR
     yaml_path = examples_dir / f"{req.scenario_id}.yaml"
     if not yaml_path.exists():
         raise HTTPException(status_code=404, detail=f"scenario not found: {req.scenario_id}")
