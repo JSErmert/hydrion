@@ -1,0 +1,12 @@
+{
+  "obs_schema": "obs12_v2",
+  "action_schema": "act4_v1",
+  "train_seed": 42,
+  "total_timesteps": 500000,
+  "reward_version": "phase1_v1",
+  "d_p_um": 1.0,
+  "benchmark_regime": "submicron",
+  "dep_threshold_q_lmin": 7.7,
+  "dep_threshold_pump_cmd": 0.22,
+  "note": "ppo_cce_v1 (d_p_um=10.0) is RT-saturated; this v2 is capture-sensitive"
+}

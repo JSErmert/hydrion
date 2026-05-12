@@ -18,7 +18,7 @@ export default function App() {
   const [isRunning, setIsRunning]   = useState(false);
   const [loadError, setLoadError]   = useState<string | null>(null);
   const [history, setHistory]       = useState<ScenarioExecutionHistory | null>(null);
-  const [viewMode, setViewMode]     = useState<ViewMode>('2d');
+  const [viewMode, setViewMode]     = useState<ViewMode>('3d');
 
   const playback = useScenarioPlayback(history);
 
@@ -69,7 +69,12 @@ export default function App() {
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
           {viewMode === '2d'
             ? <ConicalCascadeView state={displayState} />
-            : <WebGLCascadeView state={displayState} />}
+            : <WebGLCascadeView
+                state={displayState}
+                playbackTime={currentTime}
+                isPlaying={isPlaying}
+                speedMultiplier={speedMultiplier}
+              />}
 
           {/* 2D / 3D toggle */}
           <div style={{

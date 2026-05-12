@@ -1,0 +1,7 @@
+{
+  "obs_schema": "obs12_v2",
+  "action_schema": "act4_v1",
+  "train_seed": 42,
+  "total_timesteps": 500000,
+  "reward_version": "phase1_v1"
+}

@@ -109,6 +109,8 @@ Milestone closeouts (M1 through M9.9) live under `docs/orchestration/`.
 
 ## Quick Start
 
+### Training / evaluation / video pipeline
+
 ```bash
 pip install -e .
 # Train (PPO, calibrated environment)
@@ -117,9 +119,47 @@ python -m hydrion.train_ppo_hydrienv_v2_cal
 python -m hydrion.eval_ppo_hydrienv_v2_cal
 # Generate animated video (requires FFMPEG on PATH)
 python -m hydrion.make_video
-# Run research console
-cd apps/hydros-console && npm install && npm run dev
 ```
+
+### Viewing the realtime WebGL 3D renderer
+
+The HydrOS reactor is observable through a 60fps WebGL 3D view in `apps/hydros-console/`. The 3D view is the default surface; a diagnostic 2D SVG view is available via the in-app toggle.
+
+**Prerequisites**
+
+- Python 3.10+ with `pip` (backend)
+- Node.js 18+ with `npm` (frontend)
+
+**1. Start the FastAPI backend on port 8000** (terminal 1):
+
+```bash
+pip install -e .
+uvicorn hydrion.service.app:app --host 127.0.0.1 --port 8000
+```
+
+The backend exposes `/api/scenarios` (list available scenarios) and `/api/scenarios/run/{id}` (run a scenario and return its step-by-step history).
+
+**2. Start the Vite dev server on port 5173** (terminal 2):
+
+```bash
+cd apps/hydros-console
+npm install   # one-time
+npm run dev   # starts Vite at http://127.0.0.1:5173
+```
+
+Vite proxies `/api/*` to the backend, so a single localhost URL serves both. No CORS configuration is needed.
+
+**3. Use the 3D view**
+
+1. Open <http://127.0.0.1:5173> — the reactor housing renders but no particles flow yet (idle state).
+2. Pick a scenario from the **SCENARIO** dropdown at the bottom — e.g. `baseline_nominal` or `backflush_recovery_demo`.
+3. Click **RUN** — the backend computes the scenario step-by-step history.
+4. Click the **▶ play** button — the reactor visibly fills from the inflow over ~12 seconds. The 1500-particle GPU-instanced field is driven by live backend state (capture efficiency, fouling fraction, backflush flag per stage); per-frame `InstancedBufferAttribute` updates flow into custom GLSL shaders.
+5. For `backflush_recovery_demo`, watch the fouling crust accumulate on the cone walls; at t=30s the flush event fires and on-mesh particles visibly shed into the channels.
+
+**Toggling to the diagnostic 2D view**
+
+A `2D / 3D` toggle is in the top-right corner of the machine view. 2D mode renders backend particle tracers directly via SVG (useful for verifying backend simulation correctness against the rendered surface); 3D mode runs the full state-driven synthetic field (1500 particles, 60fps, render-loop decoupled from the 10Hz simulation ticks via wall-clock interpolation).
 
 ---
 

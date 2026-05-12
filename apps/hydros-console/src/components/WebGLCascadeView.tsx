@@ -233,12 +233,6 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
     return geom;
   }, [bezierProfile, length, stg.wireSegments]);
 
-  // Clog-tinted shadow color for the inner cone — fouled stages darken
-  const cloggedColor = useMemo(() => {
-    const clogged = new THREE.Color('#3a1f1f');
-    return stageColor.clone().lerp(clogged, clogLevel * 0.4);
-  }, [stageColor, clogLevel]);
-
   const fieldGlowRef = useRef<THREE.MeshStandardMaterial>(null);
 
   useFrame(({ clock }) => {
@@ -295,21 +289,10 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
         />
       </mesh>
 
-      {/* Apex collar — narrow cylindrical neck at the cone tip */}
-      <mesh position={[length / 2, 0, 0]} rotation={[0, 0, -Math.PI / 2]}>
-        <cylinderGeometry args={[apexRadius, apexRadius, 0.04, 24]} />
-        <meshStandardMaterial color={cloggedColor} metalness={0.7} roughness={0.4} />
-      </mesh>
-
-      {/* Inter-stage transition collar — thin metallic ring matching the
-          housing flange material so it reads as a flow-restriction baffle,
-          not a black artifact in the middle of the bore. */}
-      {stageIdx < 2 && (
-        <mesh position={[length / 2 + 0.04, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
-          <torusGeometry args={[apexRadius + 0.05, 0.018, 12, 32]} />
-          <meshStandardMaterial color="#94A3B8" metalness={0.85} roughness={0.25} />
-        </mesh>
-      )}
+      {/* Cone tip ends at its natural apex point — no decorative disc or
+          collar.  Particles converge here to form the visible "node" via
+          their own apex-pull trajectory; the EjectionPipe attaches here and
+          carries captured load down to the extraction channel. */}
     </group>
   );
 }
@@ -770,8 +753,15 @@ function onMeshWallPosition(
   const baseRCone = 0.52;
   const apexRCone = [0.10, 0.075, 0.05][stageIdx];
 
-  // Cluster near apex (localPhase 0.82–0.98) with a slight upstream spread
-  const localPhase = 0.82 + ((Math.sin(seed * 0.97) + 1) * 0.5) * 0.16;
+  // Distribute particles across the mesh surface with a slide-toward-apex
+  // bias: backend's wall-slide semantics pin oversize particles at the wall
+  // wherever they first contact it, then drag them downstream toward the
+  // apex zone where they finally settle.  Power-curve bias clusters most
+  // particles in the downstream half (0.6–0.95) but spreads ~20% across the
+  // upstream half (0.18–0.6) representing the just-trapped sliding load.
+  const t = (Math.sin(seed * 0.97) + 1) * 0.5;
+  const phaseT = Math.pow(t, 0.45);
+  const localPhase = 0.18 + phaseT * 0.77;
   const coneR = bezierConeRadius(localPhase, baseRCone, apexRCone);
 
   // Sit ON the wall — radially at coneR * 0.93, right up against the
@@ -916,6 +906,16 @@ interface SyntheticOutput {
   fateDistribution: [number, number, number, number];  // total particles assigned to S1, S2, S3, pass-through
 }
 
+// Showcase Mode drive: when a scenario is loaded, the synthetic generator
+// keeps its 1500-particle / 60fps rendering fidelity but its capture and
+// fouling behaviour is modulated by live backend state.  Pre-RUN this is
+// undefined and the generator falls back to its default behaviour.
+interface ShowcaseDrive {
+  etaS: [number, number, number];           // [0..1] per-stage capture efficiency
+  fouling: [number, number, number];        // [0..1] per-stage accumulated foul fraction
+  flushActive: [boolean, boolean, boolean]; // per-stage backflush in progress
+}
+
 // Apex phase positions (when each stage's apex is reached in the particle's
 // normalised travel through the reactor):
 // Earlier thresholds so each stage has a visible captured population in the
@@ -923,7 +923,11 @@ interface SyntheticOutput {
 // which meant the S3 mesh layer was nearly invisible.
 const STAGE_APEX_PHASES = [0.22, 0.50, 0.78];
 
-function generateRealisticParticles(count: number, t: number): SyntheticOutput {
+function generateRealisticParticles(
+  count: number,
+  t: number,
+  drive?: ShowcaseDrive,
+): SyntheticOutput {
   const particles: ParticlePoint[] = [];
   const flashAges = new Float32Array(count);
   const worldPositions = new Float32Array(count * 3);
@@ -940,10 +944,24 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
   //   PET  25 µm > S3 (5)   → passes S1 + S2, caught at S3
   const sizes = [25, 200, 800];
 
+  // Each particle has a spawn time spread across the first FILL_TIME_S seconds
+  // of playback.  Before its spawn time the particle is not yet emitted (we
+  // skip it entirely so the reactor visibly fills from the inflow rather than
+  // appearing fully populated at t=0).  FILL_TIME_S is tuned so the spawn
+  // rate is slightly SLOWER than the per-particle traversal rate (a particle
+  // takes ~12–16s to traverse phase 0→1 at speed 0.06–0.08), giving a
+  // deliberate "rising flow" rather than a burst that fills instantly.
+  // outIdx packs visible particles into contiguous indices so worldPositions
+  // / flashAges stay aligned with the returned particles array.
+  const FILL_TIME_S = 12.0;
+  let outIdx = 0;
+
   for (let i = 0; i < count; i++) {
     const seed = i * 7331.7;
     const speed = 0.06 + ((Math.sin(seed) + 1) * 0.5) * 0.04;
-    const startOffset = i / count;
+    const spawnTime = (i / count) * FILL_TIME_S;
+    if (t < spawnTime) continue;          // not yet emitted — reactor still filling
+    const localT = t - spawnTime;
 
     // Size class FIRST — capture probability depends on it.
     const sizeClass = i % 3;                  // 0=PET 5µm, 1=PE 100µm, 2=PP 500µm
@@ -957,44 +975,74 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
     // fraction of upstream + downstream leakage to mimic real-world
     // imperfection.
     const captureRoll = (Math.sin(seed * 1.3 + 0.7) + 1) * 0.5;
+    // Per-stage efficiency multipliers — when the backend reports a depleted
+    // etaS (e.g. mid-flush, post-clog), fewer particles get captured at that
+    // stage and more flow downstream / pass through.  Pre-RUN these default
+    // to 1.0 so the synthetic baseline is unchanged.
+    const e0 = drive?.etaS[0] ?? 1.0;
+    const e1 = drive?.etaS[1] ?? 1.0;
+    const e2 = drive?.etaS[2] ?? 1.0;
     let captureStage = -1;
     if (sizeClass === 2) {
       // PP 800µm — S1 catches it (only mesh with opening < 800)
-      if (captureRoll < 0.93)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < 0.97) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < 0.99) { captureStage = 2; fateDistribution[2]++; }
-      else                          { fateDistribution[3]++; }
+      const p1 = 0.93 * e0;
+      const p2 = p1 + 0.04 * e1;
+      const p3 = p2 + 0.02 * e2;
+      if (captureRoll < p1)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < p2) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < p3) { captureStage = 2; fateDistribution[2]++; }
+      else                        { fateDistribution[3]++; }
     } else if (sizeClass === 1) {
       // PE 200µm — passes S1 (200<500), caught at S2 (200>100)
-      if (captureRoll < 0.02)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < 0.94) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < 0.98) { captureStage = 2; fateDistribution[2]++; }
-      else                          { fateDistribution[3]++; }
+      const p1 = 0.02 * e0;
+      const p2 = p1 + 0.92 * e1;
+      const p3 = p2 + 0.04 * e2;
+      if (captureRoll < p1)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < p2) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < p3) { captureStage = 2; fateDistribution[2]++; }
+      else                        { fateDistribution[3]++; }
     } else {
       // PET 25µm — passes S1+S2, caught at S3 (25>5)
-      if (captureRoll < 0.005)     { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < 0.03) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < 0.96) { captureStage = 2; fateDistribution[2]++; }
-      else                          { fateDistribution[3]++; }
+      const p1 = 0.005 * e0;
+      const p2 = p1 + 0.025 * e1;
+      const p3 = p2 + 0.93 * e2;
+      if (captureRoll < p1)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < p2) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < p3) { captureStage = 2; fateDistribution[2]++; }
+      else                        { fateDistribution[3]++; }
     }
 
-    const phase = (startOffset + t * speed) % 1.0;
+    // phase advances from 0 at spawn — particle enters at the inflow (phase=0)
+    // and traverses the reactor over time, NOT randomly distributed at t=0.
+    const phase = (localT * speed) % 1.0;
 
     let wx: number, wy: number, wz: number;
     let status: ParticlePoint['status'];
 
     if (captureStage !== -1 && phase > STAGE_APEX_PHASES[captureStage]) {
-      // CAPTURED — 40% on mesh wall (accumulated fouling load), 15% in
-      // ejection pipe (transiting from apex to channel), 45% settled in the
-      // long collection tube.  The on-mesh layer is what backflush would
-      // dislodge — it's the visible reason the flush state exists.
+      // CAPTURED — split across three locations: ON MESH WALL (fouling load),
+      // IN EJECTION PIPE (apex → channel transit), IN CHANNEL (settled load).
+      // State-driven thresholds:
+      //   - higher fouling[stage]  → more particles parked on the wall
+      //   - flushActive[stage]     → on-mesh fraction drops sharply, pipe and
+      //                              channel fractions rise (dislodged load
+      //                              streams out toward storage)
+      // Pre-RUN defaults match the original 55/15/30 split.
       const ch = channelWorldPos(captureStage as 0 | 1 | 2);
       const stgCaptured = SVG_STAGE_X[captureStage as 0 | 1 | 2];
       const apexX = nx(stgCaptured.apexX);
       const transitSeed = (Math.sin(seed * 7.91) + 1) * 0.5;
       const particleSize = diameterToWorldSize(d_p_um);
 
-      if (transitSeed < 0.55) {
+      const fouling_s = drive?.fouling[captureStage] ?? 0.45;
+      const flushing_s = drive?.flushActive[captureStage] ?? false;
+      // On-mesh fraction grows with fouling, drops sharply during active flush
+      let onMeshFrac = 0.35 + 0.50 * fouling_s;          // 0.35 .. 0.85
+      if (flushing_s) onMeshFrac *= 0.40;                 // dislodge ~60%
+      let pipeFrac = 0.15;
+      if (flushing_s) pipeFrac = 0.35;                    // more in flush transit
+
+      if (transitSeed < onMeshFrac) {
         // ON MESH WALL near apex — accumulating fouling load
         const [mx, my, mz] = onMeshWallPosition(
           captureStage as 0 | 1 | 2,
@@ -1002,9 +1050,23 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
           particleSize,
         );
         wx = mx; wy = my; wz = mz;
-      } else if (transitSeed < 0.70) {
-        // IN EJECTION PIPE — between cone apex (z=SHEAR_Z) and channel z
-        const pipeT = (Math.cos(seed * 4.31) + 1) * 0.5;
+        // During an active flush, animate dislodged particles drifting
+        // upstream-then-outward — small +X jitter and Z reduction so the
+        // viewer sees a visible "shedding" motion on the wall layer.
+        if (flushing_s) {
+          const shed = (Math.sin(t * 6.0 + seed * 0.13) + 1) * 0.5;
+          wx -= shed * 0.025;
+          wz *= 0.92 + shed * 0.06;
+        }
+      } else if (transitSeed < onMeshFrac + pipeFrac) {
+        // IN EJECTION PIPE — between cone apex (z=SHEAR_Z) and channel z.
+        // During flush, advance the pipeT with the clock so particles visibly
+        // stream toward storage rather than sitting at a fixed seed-stable
+        // position.
+        const pipeBase = (Math.cos(seed * 4.31) + 1) * 0.5;
+        const pipeT = flushing_s
+          ? (pipeBase + t * 0.35) % 1.0
+          : pipeBase;
         wx = apexX + (Math.cos(seed * 5.7) * 0.5) * 0.018;
         wy = (Math.sin(seed * 6.1) * 0.5) * 0.018;
         wz = SHEAR_Z + pipeT * (ch.z - SHEAR_Z);
@@ -1018,7 +1080,7 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       status = 'captured';
 
       const capturePhaseAge = phase - STAGE_APEX_PHASES[captureStage];
-      flashAges[i] = capturePhaseAge / speed;
+      flashAges[outIdx] = capturePhaseAge / speed;
     } else {
       // IN TRANSIT — particles enter the stage distributed broadly across
       // the bore cross-section (some near the wall, some further in), then
@@ -1052,31 +1114,33 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const particleSize = diameterToWorldSize(d_p_um);
       const maxParticleR = Math.max(0.04, coneEnvR * 0.92 - particleSize);
 
-      // Only converge if THIS stage is where the particle gets captured.
-      // Pass-through particles flow straight without being pulled to the apex.
-      const willCaptureHere = (captureStage === stageIdx);
-      const apexPullStrength = willCaptureHere
-        ? Math.max(0, (localPhase - 0.35) / 0.65)
-        : 0;
+      // EVERY particle funnels toward the apex node — the cone interior is
+      // the only flow path, the mesh is at its wall, and the apex is where
+      // flow concentrates physically.  Pass-through particles still converge
+      // to the apex; they simply slip through the mesh openings there and
+      // continue downstream to the next stage's base.  Without this, the
+      // pass-through population skips the cone interior entirely and forms
+      // a visible column along the unsheared bore axis — geometrically
+      // unrelated to the visible cones.
+      const apexPullStrength = Math.max(0, (localPhase - 0.35) / 0.65);
       const constrainedR = Math.min(baseR, maxParticleR);
       const r = constrainedR * (1 - apexPullStrength * 0.92);
-      // Captured particles also follow the sheared cone axis (apex offset to
-      // +Z by SHEAR_Z), so they converge to the actual apex node — not the
-      // bore axis center.  Pass-through particles stay on the bore axis
-      // because they're slipping through the mesh openings, not following
-      // the cone interior.
-      const zConeAxis = willCaptureHere ? localPhase * SHEAR_Z : 0;
+      // All particles follow the sheared cone axis so they trace the visible
+      // funnel.  zConeAxis ramps 0 → SHEAR_Z across each stage, then resets
+      // at the next stage's base — the small Z-jog at the stage boundary
+      // reads as flow being re-centered as it enters the next funnel.
+      const zConeAxis = localPhase * SHEAR_Z;
 
       wx = nx(xSvg);
       wy = r * Math.cos(angle);
       wz = r * Math.sin(angle) + zConeAxis;
       status = 'in_transit';
-      flashAges[i] = -1;
+      flashAges[outIdx] = -1;
     }
 
-    worldPositions[i * 3 + 0] = wx;
-    worldPositions[i * 3 + 1] = wy;
-    worldPositions[i * 3 + 2] = wz;
+    worldPositions[outIdx * 3 + 0] = wx;
+    worldPositions[outIdx * 3 + 1] = wy;
+    worldPositions[outIdx * 3 + 2] = wz;
 
     particles.push({
       x: 0,        // SVG coords unused now; world coords are authoritative
@@ -1085,6 +1149,7 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       d_p_um,
       status,
     });
+    outIdx++;
   }
 
   return { particles, flashAges, worldPositions, fateDistribution };
@@ -1098,10 +1163,23 @@ interface ParticleFieldProps {
   realParticles: ParticlePoint[];
   capacity: number;
   syntheticMode: boolean;
+  drive?: ShowcaseDrive;
+  playbackTime?: number;
+  isPlaying?: boolean;
+  speedMultiplier?: number;
   onFateUpdate?: (dist: [number, number, number, number]) => void;
 }
 
-function ParticleField({ realParticles, capacity, syntheticMode, onFateUpdate }: ParticleFieldProps) {
+function ParticleField({
+  realParticles,
+  capacity,
+  syntheticMode,
+  drive,
+  playbackTime = 0,
+  isPlaying = false,
+  speedMultiplier = 1,
+  onFateUpdate,
+}: ParticleFieldProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   const { iPosition, iSize, iColor, iCaptured, iFlashAge } = useMemo(() => ({
@@ -1126,20 +1204,44 @@ function ParticleField({ realParticles, capacity, syntheticMode, onFateUpdate }:
   // it once on first frame and skip per-frame updates to avoid React thrash.
   const fateReported = useRef(false);
 
+  // Smooth-time anchor — playback hook ticks at ~10Hz (1x speed) but Canvas
+  // renders at ~60Hz.  We re-anchor on every hook tick (playbackTime change)
+  // and extrapolate between ticks using wall-clock delta × speedMultiplier
+  // so per-particle motion is continuous at the display refresh rate instead
+  // of stepping in 100ms increments.
+  const timeAnchor = useRef({ pbTime: 0, wallTime: 0 });
+
   useFrame(({ clock }) => {
     if (!meshRef.current) return;
     const m = meshRef.current;
+
+    // Re-anchor whenever the hook advances playbackTime (or rewinds / resets).
+    if (playbackTime !== timeAnchor.current.pbTime) {
+      timeAnchor.current = { pbTime: playbackTime, wallTime: clock.elapsedTime };
+    }
+    // While playing, extrapolate sim time between hook ticks using wall delta.
+    // Paused or scrubbing → use the exact playbackTime so positions snap to
+    // the scrubbed step instead of drifting.
+    const smoothT = isPlaying
+      ? timeAnchor.current.pbTime
+          + (clock.elapsedTime - timeAnchor.current.wallTime) * speedMultiplier
+      : playbackTime;
 
     let activeParticles: ParticlePoint[];
     let activeFlashAges: Float32Array;
     let activeWorldPositions: Float32Array | null;
 
     if (syntheticMode) {
-      const out = generateRealisticParticles(capacity, clock.elapsedTime);
+      // t = smoothed scenario playback time.  Re-anchored each hook tick and
+      // wall-clock interpolated in between so the render moves at 60fps even
+      // though the playback hook ticks at 10Hz.
+      const out = generateRealisticParticles(capacity, smoothT, drive);
       activeParticles = out.particles;
       activeFlashAges = out.flashAges;
       activeWorldPositions = out.worldPositions;
-      if (!fateReported.current && onFateUpdate) {
+      // When state-driven (drive present), the fate distribution shifts every
+      // frame as etaS changes — push live updates so the HUD stays accurate.
+      if (onFateUpdate && (drive || !fateReported.current)) {
         onFateUpdate(out.fateDistribution);
         fateReported.current = true;
       }
@@ -1217,9 +1319,17 @@ function ParticleField({ realParticles, capacity, syntheticMode, onFateUpdate }:
 
 interface WebGLCascadeViewProps {
   state: HydrosDisplayState | null;
+  playbackTime?: number;       // scenario seconds since playback began (0 at scenario start)
+  isPlaying?: boolean;
+  speedMultiplier?: number;    // sim-seconds per real-second (used to interpolate between hook ticks)
 }
 
-export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
+export default function WebGLCascadeView({
+  state,
+  playbackTime = 0,
+  isPlaying = false,
+  speedMultiplier = 1,
+}: WebGLCascadeViewProps) {
   const realParticles = useMemo(() => {
     const streams = state?.particleStreams;
     if (!streams) return [];
@@ -1247,7 +1357,28 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
     ];
   }, [state?.particleStreams]);
 
-  const hasRealData = realParticles.length > 0;
+  // Showcase Mode — the 3D view stays empty until a scenario has been Run
+  // AND the user has pressed play (so playbackTime starts advancing).  At
+  // playbackTime=0 the reactor is visually empty; particles enter from the
+  // S1 inflow and fill the reactor over the first ~5s of play.  Backend
+  // state (capture efficiency, fouling, backflush) drives behaviour
+  // continuously thereafter.
+  const scenarioActive = state != null && (isPlaying || playbackTime > 0);
+  const showcaseDrive: ShowcaseDrive | undefined = state
+    ? {
+        etaS: [state.etaS1 ?? 1.0, state.etaS2 ?? 1.0, state.etaS3 ?? 1.0],
+        fouling: [
+          state.foulingS1 ?? 0.0,
+          state.foulingS2 ?? 0.0,
+          state.foulingS3 ?? 0.0,
+        ],
+        flushActive: [
+          state.flushActiveS1 ?? false,
+          state.flushActiveS2 ?? false,
+          state.flushActiveS3 ?? false,
+        ],
+      }
+    : undefined;
 
   const eField = state?.eField ?? 0;
   const clog = state?.clog ?? 0;
@@ -1318,7 +1449,11 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
         <ParticleField
           realParticles={realParticles}
           capacity={1500}
-          syntheticMode={!hasRealData}
+          syntheticMode={scenarioActive}
+          drive={showcaseDrive}
+          playbackTime={playbackTime}
+          isPlaying={isPlaying}
+          speedMultiplier={speedMultiplier}
           onFateUpdate={setFateDist}
         />
 
@@ -1353,7 +1488,9 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
           WebGL 3D · Three.js / R3F · custom GLSL shaders
         </div>
         <div style={{ color: '#CBD5E1', opacity: 0.85 }}>
-          {hasRealData ? `${realParticles.length} particles · live` : '1500 particles · synthetic demo'}
+          {scenarioActive
+            ? `1500 particles · state-driven${anyFlush ? ' · BACKFLUSH' : ''}`
+            : 'idle · run a scenario to begin'}
           {' · '}
           {Math.round(eFieldArr.reduce((a, b) => a + b, 0) * 100 / 3)}% mean field
         </div>

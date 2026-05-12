@@ -1,0 +1,173 @@
+sim:
+  dt: 0.1
+
+# ---------------------------------------------------------------------------
+# M10: Physics capture mode toggle
+# ---------------------------------------------------------------------------
+physics:
+  capture_mode: "m5_rt"   # Rajagopalan-Tien 1976 single-collector capture
+                           # Replaces M4 power-law curves in particles.py
+                           # MANDATORY: psd.enabled and shape.enabled must remain false
+
+# ---------------------------------------------------------------------------
+# Flow operating envelope (locked system constraints)
+# ---------------------------------------------------------------------------
+flow_envelope:
+  Q_low_Lmin:         5.0
+  Q_nominal_min_Lmin: 12.0
+  Q_nominal_max_Lmin: 15.0
+  Q_peak_Lmin:        20.0
+
+# ---------------------------------------------------------------------------
+# Stage geometry (locked system constraints)
+# ---------------------------------------------------------------------------
+stage_geometry:
+  area_s1_cm2: 120.0   # coarse mesh ~500 µm
+  area_s2_cm2: 220.0   # medium mesh ~100 µm
+  area_s3_cm2: 900.0   # fine pleated ~5 µm equivalent (dominant clog region)
+
+# ---------------------------------------------------------------------------
+# Hydraulics
+# ---------------------------------------------------------------------------
+hydraulics:
+  Q_max_Lmin: 20.0      # normalization reference = peak flow
+  P_max_Pa: 80000.0
+  R_pipe: 2.0e7
+  R_valve_min: 0.5e7
+  R_valve_max: 8.0e7
+  R_m1_base: 1.0e7
+  R_m2_base: 2.0e7
+  R_m3_base: 4.0e7
+  k_m1_clog: 2.0e7
+  k_m2_clog: 8.0e7
+  k_m3_clog: 3.0e8
+  bf_flow_penalty: 0.8
+  min_Q_Lmin: 0.0
+  max_Q_Lmin: 20.0
+
+# ---------------------------------------------------------------------------
+# Bypass (passive pressure-relief valve)
+# ---------------------------------------------------------------------------
+bypass:
+  bypass_pressure_threshold_pa: 65000.0
+  bypass_flow_fraction: 0.30
+  bypass_hysteresis_fraction: 0.90
+
+# ---------------------------------------------------------------------------
+# Clogging — decomposed fouling model (inherited from M9, unchanged)
+# ---------------------------------------------------------------------------
+clogging:
+  Mc1_max: 1.0
+  Mc2_max: 1.0
+  Mc3_max: 1.0
+  dep_base: 1.0e-3
+  dep_exponent: 1.0
+  dep_floor: 0.05
+  shear_coeff: 5.0e-3
+  shear_Q_ref: 15.0
+  eps: 1.0e-8
+  dep_rate_s1: 0.5
+  dep_rate_s2: 0.8
+  dep_rate_s3: 1.5
+  cake_weight_s1:   0.20
+  bridge_weight_s1: 0.60
+  pore_weight_s1:   0.20
+  cake_weight_s2:   0.30
+  bridge_weight_s2: 0.45
+  pore_weight_s2:   0.25
+  cake_weight_s3:   0.55
+  bridge_weight_s3: 0.25
+  pore_weight_s3:   0.20
+  maintenance_fouling_threshold: 0.70
+  irreversible_stress_threshold: 0.70
+  irreversible_rate: 0.05
+  capture_eff_baseline:  0.80
+  capture_eff_gain:      0.12
+  capture_eff_exponent:  0.50
+  capture_eff_floor:     0.30
+  capture_eff_ceiling:   0.98
+
+fouling:
+  bf_cake_recovery:   0.35
+  bf_bridge_recovery: 0.20
+  bf_pore_recovery:   0.08
+  bf_diminishing_factor: 0.80
+
+backflush:
+  n_pulses:           3
+  pulse_duration_s:   0.4
+  interpulse_s:       0.25
+  cooldown_s:         9.0
+  trigger_threshold:  0.30
+  effluent_cleaning_efficiency: 0.70
+
+# ---------------------------------------------------------------------------
+# Electrostatics (inherited from M9, unchanged)
+# ---------------------------------------------------------------------------
+electrostatics:
+  V_max_realism:  2500.0
+  V_hard_clamp:   3000.0
+  tau_charge:     0.5
+  leak_rate:      0.1
+  r_inner_m:      0.005
+  r_outer_m:      0.040
+  t_E_ref_s:      2.0
+  stage_volume_L: 0.25
+  V_ring_ref:     500.0
+  ring_weight:    0.30
+  node_weight:    0.70
+
+# ---------------------------------------------------------------------------
+# Particle model (inherited from M9, unchanged)
+# NOTE: capture physics are now controlled by physics.capture_mode above.
+#       The per-stage power-law parameters below are used only under "m4" mode.
+# ---------------------------------------------------------------------------
+particles:
+  C_in_base: 0.7
+  dense_fraction:   0.70
+  neutral_fraction: 0.15
+  buoyant_fraction: 0.15
+  stage_height_m:   0.05
+  rho_dense_kgm3:   1380.0
+  rho_water_kgm3:   1000.0
+  mu_water_Pas:     1.0e-3
+  fouling_gain_s1:  0.15
+  fouling_gain_s2:  0.20
+  fouling_gain_s3:  0.10
+  s3_flow_penalty_coeff: 0.04
+  s3_flow_onset_lmin:    10.0
+  eta_ref_d_um:     10.0
+  eta_ref_Q_lmin:   13.5
+  psd:
+    enabled: false
+  shape:
+    enabled: false
+    fiber_fraction: 1.0
+
+# ---------------------------------------------------------------------------
+# Reward (inherited from M9, unchanged — capture-decoupled)
+# ---------------------------------------------------------------------------
+reward:
+  w_processed_flow: 2.0
+  w_pressure_penalty: 1.0
+  w_fouling_penalty: 0.5
+  w_bypass_penalty: 0.3
+  w_backflush_cost: 0.1
+
+# ---------------------------------------------------------------------------
+# Sensors — M9 Calibrated (inherited verbatim)
+# ---------------------------------------------------------------------------
+sensors:
+  pressure:
+    dp_noise_kPa: 0.25
+    dp_drift_rate_kPa_per_step: 1.27e-6
+    dp_drift_max_kPa: 0.40
+    dp_fouling_gain: 0.02
+    dp_latency_steps: 1
+  flow:
+    flow_noise_frac: 0.01
+    flow_bias_std_lmin: 0.2
+  optical:
+    turbidity_noise_std: 0.02
+    scatter_noise_std: 0.02
+    camera_noise_std: 0.02

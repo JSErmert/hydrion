@@ -9,9 +9,11 @@
  *   - Expose step navigation and event marker jump controls
  *   - Derive HydrosDisplayState for the current step on every render
  *
- * Speed model: a setInterval fires every TICK_MS. Each tick advances
- * stepsPerTick = round(speedMultiplier * TICK_MS / (dt * 1000)) steps.
- * At 10× speed with dt=0.1s: 10 * 50 / 100 = 5 steps/tick = 100 steps/sec.
+ * Speed model: target rate is speedMultiplier sim-seconds per real-second
+ * (i.e. stepsPerSec = speedMultiplier / dt).  When that rate produces ≥1
+ * step per FAST_TICK_MS the loop batches steps per tick; below that, it
+ * stretches the tick interval so exactly one step fires per tick.  At 1x
+ * with dt=0.1s the slow path runs (10 steps/sec → tickMs=100, 1 step/tick).
  *
  * Loading new history resets to step 0 automatically.
  */
@@ -46,18 +48,23 @@ export function useScenarioPlayback(history: ScenarioExecutionHistory | null) {
     clearTimer();
     if (!isPlaying || totalSteps === 0) return;
 
-    // One step represents dt simulation-seconds. At 1x speed, 1 step fires every
-    // dt*1000ms of real time. Compute tick interval and steps-per-tick accordingly.
-    const baseIntervalMs = Math.round(dt * 1000); // e.g. 100ms at dt=0.1s
-
+    // Target advance rate: speedMultiplier simulation-seconds per real-second.
+    // With dt seconds per step, that's stepsPerSec = speedMultiplier / dt.
+    // Two regimes:
+    //   - stepsPerSec * FAST_TICK_MS / 1000 >= 1  → fast path: batch multiple
+    //     steps per FAST_TICK_MS tick.
+    //   - else                                    → slow path: stretch tickMs so
+    //     exactly one step fires per tick interval (sub-real-time playback).
+    // The previous formulation collapsed the slow path at 1x and ran at ~4x
+    // real-time; this restores the intended scaling.
+    const stepsPerSec = speedMultiplier / dt;
     let tickMs: number;
     let stepsPerTick: number;
-    if (speedMultiplier >= 1) {
+    if ((stepsPerSec * FAST_TICK_MS) / 1000 >= 1) {
       tickMs = FAST_TICK_MS;
-      stepsPerTick = Math.max(1, Math.round(speedMultiplier * baseIntervalMs / tickMs));
+      stepsPerTick = Math.max(1, Math.round((stepsPerSec * tickMs) / 1000));
     } else {
-      // Sub-1x: slow down by stretching the tick interval
-      tickMs = Math.round(baseIntervalMs / speedMultiplier);
+      tickMs = Math.max(1, Math.round(1000 / stepsPerSec));
       stepsPerTick = 1;
     }
 

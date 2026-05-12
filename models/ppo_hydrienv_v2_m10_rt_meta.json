@@ -1,0 +1,48 @@
+{
+  "milestone": "M10",
+  "capture_mode": "m5_rt",
+  "capture_physics": "Rajagopalan-Tien 1976 single-collector",
+  "parent_baseline": "ppo_hydrienv_v2_cal_A",
+  "obs_schema": "obs8_deployment_v1",
+  "obs_dim": 8,
+  "action_schema": "act4_v1",
+  "env": "HydrionEnv",
+  "config_path": "configs/m10_rt_capture.yaml",
+  "train_seed": 42,
+  "total_timesteps": 500000,
+  "learning_rate": 0.0001,
+  "clip_range": 0.1,
+  "reward_version": "phase1_v1",
+  "deployment_ready": false,
+  "settling_guard": "PASS \u2014 capture_boost_settling = 0.0 verified",
+  "reward_invariance": "PASS",
+  "clogging_invariance": "PASS",
+  "hydraulics_invariance": "PASS",
+  "obs8_channel_comparison": {
+    "obs_0_3_match": true,
+    "obs_6_7_match": true,
+    "obs_4_5_differ": true
+  },
+  "ac11_result": "PASS \u2014 694.639 vs 694.639",
+  "truth_status_note": "RT 1976 capture integrated via toggle. nDEP deferred (Phase 2). Sensors inherited from M9 calibrated config. Mesh specs are [DESIGN_DEFAULT] \u2014 not hardware-calibrated. Reward is capture-decoupled. obs8[4-5] expected to differ from M9 via C_out \u2192 optical sensor pathway.",
+  "design_defaults": [
+    "MESH_S1: d_w=125\u00b5m (opening/4 estimate)",
+    "MESH_S2: d_w=50\u00b5m",
+    "MESH_S3_MEMBRANE: d_w=1.5\u00b5m (microporous membrane regime)"
+  ],
+  "confounds": [
+    "Single training seed (seed=42)",
+    "M4 electrostatics still active (pDEP-flavored, not nDEP)",
+    "Mesh wire diameters are design defaults, not measured",
+    "No fouling coupling under RT (clean-filter formula)",
+    "Optical gain coefficients are placeholder design weights"
+  ],
+  "eval_results": {
+    "m10_mean_return": 769.3398000717164,
+    "m9_mean_return": 847.7126940011979,
+    "v1_mean_return": 694.6386868601045,
+    "random_mean_return": 574.6102744555101,
+    "m10_vs_m9_pct": -9.25,
+    "m10_vs_v1_pct": 10.75
+  }
+}
