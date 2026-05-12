@@ -164,31 +164,34 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
     // Rotate the whole stage around Y to tilt the apex downward (toward +Z).
     // This replicates the 2D design's gravity-biased extraction geometry.
     <group position={[xMid, 0, 0]} rotation={[0, APEX_TILT_RAD, 0]}>
-      {/* Outer filter mesh cone — primary material with forced stage color */}
+      {/* Outer filter mesh cone — primary material with forced stage color.
+          Bumped to opacity 0.75 + stronger emissive so the cone profile reads
+          clearly from side angles, not only end-on. */}
       <mesh rotation={[0, 0, -Math.PI / 2]}>
         <coneGeometry args={[baseRadius, length, 48, 1, true]} />
         <meshStandardMaterial
           ref={fieldGlowRef}
           color={stageColor}
           emissive={emissiveColor}
-          emissiveIntensity={0.35 + eField * stg.mult * 0.4}
+          emissiveIntensity={0.55 + eField * stg.mult * 0.4}
           metalness={0.55}
           roughness={0.45}
           side={THREE.DoubleSide}
           transparent
-          opacity={0.55}
+          opacity={0.75}
         />
       </mesh>
 
       {/* Inner mesh — wireframe density varies per stage to communicate
-          filtration fineness: S1 coarse, S2 medium, S3 fine. */}
+          filtration fineness: S1 coarse, S2 medium, S3 fine.  Higher opacity
+          so the radial mesh weave is legible from the side view. */}
       <mesh rotation={[0, 0, -Math.PI / 2]} scale={[0.97, 0.97, 0.97]}>
         <coneGeometry args={[baseRadius, length, stg.wireSegments, 1, true]} />
         <meshBasicMaterial
           color={stageColor}
           wireframe
           transparent
-          opacity={0.45 - clogLevel * 0.20}
+          opacity={0.75 - clogLevel * 0.20}
         />
       </mesh>
 
@@ -249,17 +252,17 @@ interface ExtractionChannelProps {
 // World-coordinate position helper for an extraction channel.  Each channel
 // runs from its stage's xStart all the way to CHANNEL_X_END (matching the 2D
 // canonical design where channels span the full device length and converge
-// at the storage chamber).  Y values are spread so the three parallel tracks
-// are visually distinct; Z is staircased so S1 sits closest to the housing
-// and S3 furthest (matches SVG chY staircase 252 → 274 → 296).
+// at the storage chamber).  All three channels sit at the SAME depth (z=0.72)
+// just outside the bore wall, with Y spread laterally so the three parallel
+// tracks read as side-by-side rather than stacked vertically.
 function channelWorldPos(stageIdx: 0 | 1 | 2): { x: number; y: number; z: number; length: number } {
   const stg = SVG_STAGE_X[stageIdx];
   const xStart = nx(stg.xStart);
   const length = CHANNEL_X_END - xStart;
   const xMid = (xStart + CHANNEL_X_END) / 2;
-  const yByStage = [-0.15, 0, 0.15];
+  const yByStage = [-0.20, 0, 0.20];
   const y = yByStage[stageIdx];
-  const z = 0.70 + stageIdx * 0.06;
+  const z = 0.72;
   return { x: xMid, y, z, length };
 }
 
