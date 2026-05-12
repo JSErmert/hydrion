@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import HeaderBar from './layout/HeaderBar';
 import TopTelemetryBand from './components/TopTelemetryBand';
 import ConicalCascadeView from './components/ConicalCascadeView';
+import WebGLCascadeView from './components/WebGLCascadeView';
 import BottomNarrativeBand from './components/BottomNarrativeBand';
 import RightAdvisoryPanel from './components/RightAdvisoryPanel';
 import PlaybackBar from './components/PlaybackBar';
@@ -9,12 +10,15 @@ import { listScenarios, runScenario } from './api';
 import type { ScenarioInfo, ScenarioExecutionHistory } from './api';
 import { useScenarioPlayback } from './scenarios/useScenarioPlayback';
 
+type ViewMode = '2d' | '3d';
+
 export default function App() {
   const [scenarios, setScenarios]   = useState<ScenarioInfo[]>([]);
   const [selectedId, setSelectedId] = useState<string>('baseline_nominal');
   const [isRunning, setIsRunning]   = useState(false);
   const [loadError, setLoadError]   = useState<string | null>(null);
   const [history, setHistory]       = useState<ScenarioExecutionHistory | null>(null);
+  const [viewMode, setViewMode]     = useState<ViewMode>('2d');
 
   const playback = useScenarioPlayback(history);
 
@@ -61,9 +65,45 @@ export default function App() {
 
       {/* Region 3 — Core Machine View + Right Advisory */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
-        {/* Machine SVG (dominant) */}
+        {/* Machine View (dominant) — 2D SVG or 3D WebGL */}
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-          <ConicalCascadeView state={displayState} />
+          {viewMode === '2d'
+            ? <ConicalCascadeView state={displayState} />
+            : <WebGLCascadeView state={displayState} />}
+
+          {/* 2D / 3D toggle */}
+          <div style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            display: 'flex',
+            gap: 4,
+            padding: 3,
+            background: 'rgba(8, 13, 24, 0.85)',
+            border: '1px solid #1E293B',
+            borderRadius: 4,
+            zIndex: 10,
+          }}>
+            {(['2d', '3d'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setViewMode(m)}
+                style={{
+                  padding: '4px 10px',
+                  background: viewMode === m ? '#38BDF8' : 'transparent',
+                  color: viewMode === m ? '#080D18' : '#7DD3FC',
+                  border: 'none',
+                  borderRadius: 3,
+                  cursor: 'pointer',
+                  font: '11px "JetBrains Mono", monospace',
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {m.toUpperCase()}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Right Advisory Panel */}

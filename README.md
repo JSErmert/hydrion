@@ -56,6 +56,18 @@ Output: `videos/hydrion_run.mp4`
 
 **React 18 + TypeScript + Vite** front-end for real-time research observability — run configuration, scenario selection, panel-based visualization of system internals. Designed to make headless RL runs introspectable without changing the simulation.
 
+### Real-time WebGL 3D renderer — `apps/hydros-console/src/components/WebGLCascadeView.tsx`
+
+**GPU-rendered 3D visualization of the reactor cascade**, built with Three.js via React Three Fiber, exposed in the console as a 2D / 3D toggle alongside the existing SVG `ConicalCascadeView`.
+
+- **3D conical cascade geometry** — three filtration stages (coarse → medium → fine) rendered as physically-based cone meshes with `MeshPhysicalMaterial`; transmissive housing, PBR metalness/roughness, emissive intensity driven by per-stage electrostatic field strength.
+- **GPU-instanced particle field** — up to 1500 particles rendered in a single `InstancedMesh` draw call; per-instance position, size (mapped from particle diameter in µm), color (mapped from polymer species PP / PE / PET), and capture-status all uploaded to the GPU as `InstancedBufferAttribute` streams updated every frame from the same `HydrosDisplayState` the SVG view consumes.
+- **Custom GLSL shaders** — vertex shader composes instanced sphere positions with per-instance scale; fragment shader implements Lambertian-style key lighting, rim lighting for edge highlights, and per-instance emissive glow for captured particles.
+- **Pulsing emissive field rendering** — animated `emissiveIntensity` on each stage cone driven by `useFrame` clock + per-stage `mult` (S1=0.4, S2=0.7, S3=1.0), giving a visible electrostatic-field pulse synchronized with stage activation.
+- **Auto-rotate `OrbitControls`** with clamped polar angle and zoom range; HUD overlay shows live particle count and mean field strength.
+
+Same `displayState` schema as the existing SVG view — switching between 2D and 3D is one button click in the console.
+
 ### Training + evaluation — `hydrion/train_ppo_*.py`, `hydrion/eval_ppo_*.py`
 
 Multiple training/evaluation scripts versioned through milestone progression (v1, v2, calibrated, M10 real-time). Stable Baselines3 PPO backbone with `VecNormalize` and `DummyVecEnv`.
