@@ -536,20 +536,21 @@ interface StorageChamberProps {
   storedParticles: ReadonlyArray<StoredParticleLike>;
 }
 
-// Horizontal-cylinder storage chamber sitting JUST BELOW the three extraction
-// pipes, with its right edge aligned to S3's downstream end (CHANNEL_X_END).
-// Pulled upward (closer to the channels) and tucked inside the device's X
-// footprint so it reads as integrated, not as a separate downstream tank.
+// Storage chamber on the RIGHT side of the three extraction pipes.  Its left
+// wall sits exactly at CHANNEL_X_END so each pipe terminates AT the chamber's
+// open mouth and feeds in directly — no drop chutes needed.  The Z axis is
+// centered through the middle of the pipe staircase so all three pipes
+// poke through the open left face into the chamber volume.
 const STORAGE_LENGTH = 0.50;
-const STORAGE_X_RIGHT = CHANNEL_X_END;                          // 0.828 = S3 end
-const STORAGE_X_LEFT = STORAGE_X_RIGHT - STORAGE_LENGTH;        // 0.328
-const STORAGE_X_CENTER = (STORAGE_X_LEFT + STORAGE_X_RIGHT) / 2; // 0.578
-const STORAGE_Z_CENTER = 1.00;                                  // up from 1.10
-const STORAGE_RADIUS = 0.15;                                    // slim so it
-                                                                // doesn't punch
-                                                                // through the
-                                                                // pipes above
-const STORAGE_TOP_Z = STORAGE_Z_CENTER - STORAGE_RADIUS;        // 0.85
+const STORAGE_X_LEFT = CHANNEL_X_END;                           // 0.828
+const STORAGE_X_RIGHT = STORAGE_X_LEFT + STORAGE_LENGTH;        // 1.328
+const STORAGE_X_CENTER = (STORAGE_X_LEFT + STORAGE_X_RIGHT) / 2; // 1.078
+const STORAGE_Z_CENTER = 0.80;                                  // middle of
+                                                                // pipe Z range
+                                                                // (S3 z=0.70 →
+                                                                //  S1 z=0.82)
+const STORAGE_RADIUS = 0.15;
+const STORAGE_TOP_Z = STORAGE_Z_CENTER - STORAGE_RADIUS;        // 0.65
 
 function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
   const clampedFill = Math.max(0, Math.min(1, fill));
@@ -580,57 +581,20 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
 
   return (
     <group>
-      {/* Per-stage drop chutes — one vertical pipe from each channel's
-          downstream end at CHANNEL_X_END=1.0 down to the chamber's top wall.
-          S1 has the shortest chute (its pipe sits at the largest Z, closest
-          to the chamber), S3 the longest (innermost pipe is highest above
-          the chamber). */}
-      {([0, 1, 2] as const).map((stageIdx) => {
-        const ch = channelWorldPos(stageIdx);
-        const stg = SVG_STAGE_X[stageIdx];
-        const zTop = ch.z + 0.025;          // top edge of pipe box
-        const zBot = STORAGE_TOP_Z;
-        const len = zBot - zTop;
-        if (len <= 0.01) return null;
-        const zCenter = (zTop + zBot) / 2;
-        return (
-          <mesh
-            key={stageIdx}
-            rotation={[Math.PI / 2, 0, 0]}
-            position={[CHANNEL_X_END, 0, zCenter]}
-          >
-            <cylinderGeometry args={[0.038, 0.038, len, 12]} />
-            <meshStandardMaterial
-              color={stg.color}
-              emissive={stg.color}
-              emissiveIntensity={0.25}
-              metalness={0.6}
-              roughness={0.4}
-            />
-          </mesh>
-        );
-      })}
-
-      {/* Transparent outer shell — horizontal cylinder downstream of channels */}
+      {/* Transparent outer shell — horizontal cylinder right of the channels.
+          No left cap: the three pipes enter through the open left mouth and
+          terminate inside the chamber. */}
       <mesh rotation={[0, 0, Math.PI / 2]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_CENTER]}>
         <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, STORAGE_LENGTH, 32, 1, true]} />
-        <meshPhysicalMaterial
-          color="#0E1E33"
-          metalness={0.2}
-          roughness={0.2}
-          transmission={0.85}
-          thickness={0.3}
-          ior={1.5}
+        <meshStandardMaterial
+          color="#1A3A5E"
+          metalness={0.25}
+          roughness={0.3}
           side={THREE.DoubleSide}
           transparent
-          opacity={0.25}
+          opacity={0.18}
+          depthWrite={false}
         />
-      </mesh>
-
-      {/* Left cap (housing-attached end) */}
-      <mesh rotation={[0, 0, Math.PI / 2]} position={[STORAGE_X_LEFT, 0, STORAGE_Z_CENTER]}>
-        <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, 0.04, 32]} />
-        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.3} />
       </mesh>
 
       {/* Right cap (removable end — accented slightly to read as detachable) */}
@@ -829,18 +793,38 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
     const speed = 0.06 + ((Math.sin(seed) + 1) * 0.5) * 0.04;
     const startOffset = i / count;
 
-    // Deterministic capture-fate (depends only on i, not on time — STABLE)
-    const captureRoll = (Math.sin(seed * 1.3 + 0.7) + 1) * 0.5;
-    let captureStage = -1;
-    if (captureRoll < 0.30) { captureStage = 0; fateDistribution[0]++; }
-    else if (captureRoll < 0.55) { captureStage = 1; fateDistribution[1]++; }
-    else if (captureRoll < 0.75) { captureStage = 2; fateDistribution[2]++; }
-    else { fateDistribution[3]++; }
-
-    const phase = (startOffset + t * speed) % 1.0;
-    const sizeClass = i % 3;
+    // Size class FIRST — capture probability depends on it.
+    const sizeClass = i % 3;                  // 0=PET 5µm, 1=PE 100µm, 2=PP 500µm
     const d_p_um = sizes[sizeClass];
     const spec = species[sizeClass];
+
+    // Size-dependent capture fate.  Coarse mesh (S1) catches the biggest
+    // particles, fine mesh (S3) is the last line for small ones, and the
+    // smallest (PET 5µm) mostly slips through every mesh — accurate to the
+    // real-world filter cascade.
+    const captureRoll = (Math.sin(seed * 1.3 + 0.7) + 1) * 0.5;
+    let captureStage = -1;
+    if (sizeClass === 2) {
+      // PP 500µm — coarse mesh dominates
+      if (captureRoll < 0.75)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < 0.92) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < 0.97) { captureStage = 2; fateDistribution[2]++; }
+      else                          { fateDistribution[3]++; }
+    } else if (sizeClass === 1) {
+      // PE 100µm — medium mesh dominates
+      if (captureRoll < 0.10)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < 0.60) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < 0.85) { captureStage = 2; fateDistribution[2]++; }
+      else                          { fateDistribution[3]++; }
+    } else {
+      // PET 5µm — smaller than the mesh openings, mostly passes through
+      if (captureRoll < 0.02)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < 0.08) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < 0.25) { captureStage = 2; fateDistribution[2]++; }
+      else                          { fateDistribution[3]++; }
+    }
+
+    const phase = (startOffset + t * speed) % 1.0;
 
     let wx: number, wy: number, wz: number;
     let status: ParticlePoint['status'];
@@ -888,10 +872,14 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
 
       const angle = seed * 1.93 + i * 0.097;
       const baseR = 0.14 + (Math.sin(seed * 3.7) * 0.5 + 0.5) * 0.38;   // [0.14, 0.52]
-      const apexPullStrength = Math.max(0, (localPhase - 0.35) / 0.65); // 0..1 ramp
+      // Only converge if THIS stage is where the particle gets captured.
+      // Pass-through particles (PET 5µm mostly) and particles destined for
+      // other stages flow straight without being pulled to the bore bottom.
+      const willCaptureHere = (captureStage === stageIdx);
+      const apexPullStrength = willCaptureHere
+        ? Math.max(0, (localPhase - 0.35) / 0.65)
+        : 0;
       const r = baseR * (1 - apexPullStrength * 0.92);
-      // Drift the convergence CENTER toward +Z (bore bottom) so particles
-      // funnel into the sheared apex node, not the bore-axis center.
       const zCenter = SHEAR_Z * apexPullStrength * 0.85;
 
       wx = nx(xSvg);
