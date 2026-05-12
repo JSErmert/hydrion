@@ -742,6 +742,60 @@ function particleToWorld(p: ParticlePoint): [number, number, number] {
   return [nx(p.x), 0, nz(p.y)];
 }
 
+// Cubic Bezier evaluator matching buildBezierConeProfile's control points —
+// gives the cone wall radius at any localPhase t in [0, 1].
+function bezierConeRadius(t: number, baseR: number, apexR: number): number {
+  const u = 1 - t;
+  return (
+    u * u * u * baseR
+    + 3 * u * u * t * baseR
+    + 3 * u * t * t * (baseR + apexR) * 0.55
+    + t * t * t * apexR
+  );
+}
+
+// Position a captured particle ON THE MESH WALL near the apex.  Backend's
+// _is_rt_captured rule pins oversized particles at r_norm>=1.0 and slides
+// them to the apex zone where capture finalizes — visually this means the
+// captured particle should sit ON the cone surface, clustered near (but not
+// at) the apex tip, accumulating over time as fouling grows.  This is what
+// backflush is meant to dislodge; without it, backflush has no visible
+// reason to exist.
+function onMeshWallPosition(
+  stageIdx: 0 | 1 | 2,
+  seed: number,
+  particleSize: number,
+): [number, number, number] {
+  const stg = SVG_STAGE_X[stageIdx];
+  const baseRCone = 0.52;
+  const apexRCone = [0.10, 0.075, 0.05][stageIdx];
+
+  // Cluster near apex (localPhase 0.82–0.98) with a slight upstream spread
+  const localPhase = 0.82 + ((Math.sin(seed * 0.97) + 1) * 0.5) * 0.16;
+  const coneR = bezierConeRadius(localPhase, baseRCone, apexRCone);
+
+  // Sit ON the wall — radially at coneR * 0.85, just inside the visible
+  // mesh so the particle reads as "stuck against the surface", not floating
+  // in the cone interior.
+  const r = Math.max(0.02, coneR * 0.85 - particleSize * 0.3);
+
+  // Stable angular position around the cone axis (per particle)
+  const angle = seed * 2.31;
+
+  const xStartW = nx(stg.xStart);
+  const xApexW = nx(stg.apexX);
+  const wx = xStartW + localPhase * (xApexW - xStartW);
+
+  // Cone axis is sheared toward +Z by SHEAR_Z at the apex
+  const zConeAxis = localPhase * SHEAR_Z;
+
+  return [
+    wx,
+    r * Math.cos(angle),
+    r * Math.sin(angle) + zConeAxis,
+  ];
+}
+
 // Rich real-data positioning — applies the same cone-envelope clamping,
 // sheared-axis tracking, and pipe/channel placement that the synthetic
 // generator does, but driven by the backend's per-particle state instead
@@ -764,14 +818,20 @@ function computeRealParticleWorldPos(
   // Backend's r_norm derived from SVG y (CY=154 axis, ~244 bore wall).
   const rNorm = Math.max(0, Math.min(1, (p.y - 154) / (244 - 154)));
 
-  // Captured particles → pipe or channel (mirror the synthetic captured path).
+  // Captured particles → on mesh wall, in pipe transit, or in channel.
   if (p.status === 'captured') {
     const ch = channelWorldPos(stageIdx);
     const apexX = nx(stg.apexX);
     const seed = i * 7.91 + xSvg * 0.013;
     const transitSeed = (Math.sin(seed) + 1) * 0.5;
+    const particleSize = diameterToWorldSize(p.d_p_um);
 
-    if (transitSeed < 0.30) {
+    if (transitSeed < 0.40) {
+      // ON THE MESH WALL near apex — accumulated capture load that backflush
+      // would dislodge.  This is the fouling layer visible on each stage.
+      return onMeshWallPosition(stageIdx, seed, particleSize);
+    }
+    if (transitSeed < 0.55) {
       // In the ejection pipe between cone apex (z=SHEAR_Z) and channel z
       const pipeT = (Math.cos(seed * 0.5) + 1) * 0.5;
       return [
@@ -921,16 +981,25 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
     let status: ParticlePoint['status'];
 
     if (captureStage !== -1 && phase > STAGE_APEX_PHASES[captureStage]) {
-      // CAPTURED — either visibly transiting through the ejection pipe from
-      // cone apex down to its channel (30%), or already settled inside the
-      // channel box (70%).  The in-pipe particles communicate the flow path:
-      // node → thick ejection pipe → long collection tube.
+      // CAPTURED — 40% on mesh wall (accumulated fouling load), 15% in
+      // ejection pipe (transiting from apex to channel), 45% settled in the
+      // long collection tube.  The on-mesh layer is what backflush would
+      // dislodge — it's the visible reason the flush state exists.
       const ch = channelWorldPos(captureStage as 0 | 1 | 2);
       const stgCaptured = SVG_STAGE_X[captureStage as 0 | 1 | 2];
       const apexX = nx(stgCaptured.apexX);
       const transitSeed = (Math.sin(seed * 7.91) + 1) * 0.5;
+      const particleSize = diameterToWorldSize(d_p_um);
 
-      if (transitSeed < 0.30) {
+      if (transitSeed < 0.40) {
+        // ON MESH WALL near apex — accumulating fouling load
+        const [mx, my, mz] = onMeshWallPosition(
+          captureStage as 0 | 1 | 2,
+          seed * 7.91,
+          particleSize,
+        );
+        wx = mx; wy = my; wz = mz;
+      } else if (transitSeed < 0.55) {
         // IN EJECTION PIPE — between cone apex (z=SHEAR_Z) and channel z
         const pipeT = (Math.cos(seed * 4.31) + 1) * 0.5;
         wx = apexX + (Math.cos(seed * 5.7) * 0.5) * 0.018;
