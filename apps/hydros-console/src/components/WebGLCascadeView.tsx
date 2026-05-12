@@ -68,6 +68,35 @@ function nz(ySvg: number): number {
 // Apex bottom-bias — matches 2D's gravity-fed extraction (apex near BORE_BOT)
 const APEX_TILT_RAD = Math.PI / 14;  // ~12.8° downward tilt per stage
 
+// Build a Bezier-curve profile for the conical stage's revolved mesh.
+// Inspired by the 2D canonical path
+//   M xStart,64 C xStart+77,64 apexX-4,96 apexX,243
+// where the wall hangs near the bore wall for the first ~40% of stage length
+// and then arcs rapidly down to the apex.  Returns Vector2 points in
+// (radius, axial) form for THREE.LatheGeometry, centered at local Y=0 so it
+// composes cleanly with the existing group rotation/positioning.
+function buildBezierConeProfile(
+  baseR: number,
+  apexR: number,
+  length: number,
+  steps: number = 24,
+): THREE.Vector2[] {
+  const halfLen = length / 2;
+  const p0x = baseR,                  p0y = -halfLen;
+  const p1x = baseR,                  p1y = -halfLen + length * 0.43;
+  const p2x = (baseR + apexR) * 0.55, p2y = -halfLen + length * 0.70;
+  const p3x = apexR,                  p3y = halfLen;
+  const points: THREE.Vector2[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const u = 1 - t;
+    const x = u * u * u * p0x + 3 * u * u * t * p1x + 3 * u * t * t * p2x + t * t * t * p3x;
+    const y = u * u * u * p0y + 3 * u * u * t * p1y + 3 * u * t * t * p2y + t * t * t * p3y;
+    points.push(new THREE.Vector2(x, y));
+  }
+  return points;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 //  Reactor housing — transparent tube with PROPERLY-ORIENTED end flanges
 //  plus inlet/outlet nozzles to communicate flow direction visually.
@@ -143,10 +172,24 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
   const baseRadius = 0.52;
   const apexRadius = [0.30, 0.20, 0.12][stageIdx];
 
+  // Per-stage mesh thickness + wireframe opacity.  S1 = coarse + thick (largest
+  // gap between outer surface and inner wireframe, most prominent wires),
+  // S3 = fine + thin (tight gap, faint wires).
+  const innerScale = [0.92, 0.96, 0.985][stageIdx];
+  const wireOpacityBase = [0.85, 0.72, 0.58][stageIdx];
+
   // FORCE stage color — bypass clog tint so the three stages always read as
   // distinct orange/yellow/blue regardless of operational state.
   const stageColor = useMemo(() => new THREE.Color(stg.color), [stg.color]);
   const emissiveColor = useMemo(() => new THREE.Color(stg.color).multiplyScalar(0.4), [stg.color]);
+
+  // Bezier-revolved profile for the curved cone wall — hangs near the bore
+  // wall for the first ~40% then arcs to the apex, matching the 2D canonical
+  // path style.
+  const bezierProfile = useMemo(
+    () => buildBezierConeProfile(baseRadius, apexRadius, length),
+    [baseRadius, apexRadius, length],
+  );
 
   // Clog-tinted shadow color for the inner cone — fouled stages darken
   const cloggedColor = useMemo(() => {
@@ -167,11 +210,12 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
     // Rotate the whole stage around Y to tilt the apex downward (toward +Z).
     // This replicates the 2D design's gravity-biased extraction geometry.
     <group position={[xMid, 0, 0]} rotation={[0, APEX_TILT_RAD, 0]}>
-      {/* Outer filter mesh cone — primary material with forced stage color.
-          Bumped to opacity 0.75 + stronger emissive so the cone profile reads
-          clearly from side angles, not only end-on. */}
+      {/* Outer curved filter wall — revolved Bezier profile that hangs near
+          the bore wall for the first ~40% then arcs to the apex, inspired
+          by the 2D canonical path
+            M xStart,64 C xStart+77,64 apexX-4,96 apexX,243 */}
       <mesh rotation={[0, 0, -Math.PI / 2]}>
-        <coneGeometry args={[baseRadius, length, 48, 1, true]} />
+        <latheGeometry args={[bezierProfile, 48]} />
         <meshStandardMaterial
           ref={fieldGlowRef}
           color={stageColor}
@@ -185,16 +229,20 @@ function ConicalStage({ stageIdx, eField, clogLevel }: StageProps) {
         />
       </mesh>
 
-      {/* Inner mesh — wireframe density varies per stage to communicate
-          filtration fineness: S1 coarse, S2 medium, S3 fine.  Higher opacity
-          so the radial mesh weave is legible from the side view. */}
-      <mesh rotation={[0, 0, -Math.PI / 2]} scale={[0.97, 0.97, 0.97]}>
-        <coneGeometry args={[baseRadius, length, stg.wireSegments, 1, true]} />
+      {/* Inner wireframe overlay — scaled radially inward to create a visible
+          mesh THICKNESS.  Stage-specific gap (1 − innerScale) and wireframe
+          opacity encode filtration fineness: S1 has the widest gap + most
+          prominent wires (coarse), S3 the tightest + faintest (fine). */}
+      <mesh
+        rotation={[0, 0, -Math.PI / 2]}
+        scale={[innerScale, 1, innerScale]}
+      >
+        <latheGeometry args={[bezierProfile, stg.wireSegments]} />
         <meshBasicMaterial
           color={stageColor}
           wireframe
           transparent
-          opacity={0.75 - clogLevel * 0.20}
+          opacity={Math.max(0.1, wireOpacityBase - clogLevel * 0.20)}
         />
       </mesh>
 
@@ -718,7 +766,13 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const capturePhaseAge = phase - STAGE_APEX_PHASES[captureStage];
       flashAges[i] = capturePhaseAge / speed;
     } else {
-      // IN TRANSIT — flowing through the bore (world coords mapped from SVG-space flow path)
+      // IN TRANSIT — particles flow as a sheath NEAR THE BORE WALL,
+      // distributed across the full angular range around the bore axis.
+      // Each particle holds a stable per-index angle while it translates
+      // downstream, so the cross-section reads as a tube of particles riding
+      // the wall — not a single axial stream floating in the middle of the
+      // bore.  A light apex pull narrows the sheath slightly near each
+      // stage's downstream end where capture happens.
       const xSvg = SVG_X_MIN + phase * SVG_X_RANGE;
       let stageIdx = 0;
       if (xSvg > 306) stageIdx = 1;
@@ -726,14 +780,14 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
       const stg = SVG_STAGE_X[stageIdx];
       const localPhase = (xSvg - stg.xStart) / (stg.xEnd - stg.xStart);
 
-      const rTurbulence = Math.sin(seed * 3.7 + t * 0.8) * 0.55;
-      const apexBias = Math.max(0, localPhase - 0.6) * 1.2;
-      const r = rTurbulence * (1 - localPhase * 0.4) + apexBias;
+      const angle = seed * 1.93 + i * 0.097;
+      const baseR = 0.50 + Math.sin(seed * 3.7) * 0.06;     // [0.44, 0.56]
+      const apexPull = Math.max(0, localPhase - 0.7) * 0.22;
+      const r = Math.max(0.08, baseR - apexPull);
 
       wx = nx(xSvg);
-      wy = Math.sin(i * 7.31 + t * 0.6) * 0.10;
-      // Constrain z to inside housing (radius 0.62)
-      wz = r * 0.48;
+      wy = r * Math.cos(angle);
+      wz = r * Math.sin(angle);
       status = 'in_transit';
       flashAges[i] = -1;
     }
