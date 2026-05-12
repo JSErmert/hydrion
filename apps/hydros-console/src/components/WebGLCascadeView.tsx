@@ -48,10 +48,16 @@ const SVG_X_MIN = 80;
 const SVG_X_MAX = 730;
 const SVG_X_RANGE = SVG_X_MAX - SVG_X_MIN;
 
-// All three extraction channels converge here, just inside the storage chamber.
-// Matches the 2D canonical design where each channel runs from its stage
-// xStart through to ~SVG x=674 / +0.83 world, then bridges into storage.
-const CHANNEL_X_END = 1.0;
+// Channel bundle — three concentric coaxial tubes nested below the bore.
+// S1 outermost (largest radius), S2 middle, S3 innermost (smallest radius).
+// All three share one axis at (varies X, Y=0, BUNDLE_AXIS_Z) and span the
+// SAME full device length so each extraction node sits at the same height —
+// matches the 2D canonical design where chY=252/274/296 channels each span
+// SVG x=118→674 (full bore length).
+const CHANNEL_X_START = -0.883;   // = nx(118), shared upstream edge
+const CHANNEL_X_END = 0.828;      // = nx(674), shared downstream edge before storage
+const BUNDLE_AXIS_Z = 0.95;
+const CHANNEL_OUTER_RADII = [0.16, 0.10, 0.05];  // S1 outermost → S3 innermost
 
 function nx(xSvg: number): number {
   return ((xSvg - SVG_X_MIN) / SVG_X_RANGE) * 2 - 1;
@@ -249,41 +255,64 @@ interface ExtractionChannelProps {
   stageIdx: 0 | 1 | 2;
 }
 
-// World-coordinate position helper for an extraction channel.  Each channel
-// runs from its stage's xStart all the way to CHANNEL_X_END (matching the 2D
-// canonical design where channels span the full device length and converge
-// at the storage chamber).  All three channels sit at the SAME depth (z=0.72)
-// just outside the bore wall, with Y spread laterally so the three parallel
-// tracks read as side-by-side rather than stacked vertically.
-function channelWorldPos(stageIdx: 0 | 1 | 2): { x: number; y: number; z: number; length: number } {
-  const stg = SVG_STAGE_X[stageIdx];
-  const xStart = nx(stg.xStart);
-  const length = CHANNEL_X_END - xStart;
-  const xMid = (xStart + CHANNEL_X_END) / 2;
-  const yByStage = [-0.20, 0, 0.20];
-  const y = yByStage[stageIdx];
-  const z = 0.72;
-  return { x: xMid, y, z, length };
+// World-coordinate position helper for an extraction channel.  All three
+// channels are COAXIAL: same axis (Y=0, BUNDLE_AXIS_Z), same X range
+// (CHANNEL_X_START → CHANNEL_X_END = full device length).  They differ ONLY
+// in outer radius — S1 outermost wraps S2 wraps S3 (innermost).  The
+// "extraction node" for each stage is the upstream end of its tube, which
+// sits at the same height for all three because they share the same axis.
+function channelWorldPos(stageIdx: 0 | 1 | 2): {
+  x: number;
+  y: number;
+  z: number;
+  length: number;
+  radius: number;
+  innerRadius: number;
+} {
+  const length = CHANNEL_X_END - CHANNEL_X_START;
+  const xMid = (CHANNEL_X_START + CHANNEL_X_END) / 2;
+  const radius = CHANNEL_OUTER_RADII[stageIdx];
+  // Inner radius of this stage's annular layer = the NEXT stage's outer
+  // radius.  S3 is the innermost solid core (innerRadius = 0).
+  const innerRadius = stageIdx < 2 ? CHANNEL_OUTER_RADII[stageIdx + 1] : 0;
+  return { x: xMid, y: 0, z: BUNDLE_AXIS_Z, length, radius, innerRadius };
 }
 
 function ExtractionChannel({ stageIdx }: ExtractionChannelProps) {
   const stg = SVG_STAGE_X[stageIdx];
   const pos = channelWorldPos(stageIdx);
   const colorObj = useMemo(() => new THREE.Color(stg.color), [stg.color]);
+  // Outermost shell most transparent (so you can see what's inside) →
+  // innermost most opaque (the solid core).
+  const opacityByStage = [0.22, 0.42, 0.80];
 
   return (
     <group position={[pos.x, pos.y, pos.z]}>
-      {/* Long collection tube — runs from this stage's xStart all the way to
-          the storage convergence point at CHANNEL_X_END.  Slim cross-section
-          so the three parallel tracks at staircased z/y read cleanly. */}
-      <mesh>
-        <boxGeometry args={[pos.length * 0.96, 0.05, 0.07]} />
-        <meshStandardMaterial color="#334155" metalness={0.7} roughness={0.45} />
+      {/* Outer cylindrical wall of this stage's tube — open-ended so the
+          nested tube inside is visible. */}
+      <mesh rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[pos.radius, pos.radius, pos.length, 32, 1, true]} />
+        <meshStandardMaterial
+          color={colorObj}
+          emissive={colorObj}
+          emissiveIntensity={0.30}
+          metalness={0.45}
+          roughness={0.40}
+          side={THREE.DoubleSide}
+          transparent
+          opacity={opacityByStage[stageIdx]}
+        />
       </mesh>
-      {/* Inner highlight strip — color-codes the channel to its source stage */}
-      <mesh position={[0, 0.028, 0]}>
-        <boxGeometry args={[pos.length * 0.93, 0.005, 0.05]} />
-        <meshStandardMaterial color={colorObj} emissive={colorObj} emissiveIntensity={0.55} />
+      {/* Wireframe overlay — keeps the tube's outline visible against the
+          particle cloud even when the shell itself is highly transparent. */}
+      <mesh rotation={[0, 0, Math.PI / 2]} scale={[0.99, 0.99, 0.99]}>
+        <cylinderGeometry args={[pos.radius, pos.radius, pos.length, 24, 1, true]} />
+        <meshBasicMaterial
+          color={colorObj}
+          wireframe
+          transparent
+          opacity={0.55}
+        />
       </mesh>
     </group>
   );
@@ -344,11 +373,15 @@ interface FlushPortProps {
 }
 
 function FlushPort({ stageIdx, active }: FlushPortProps) {
+  const stg = SVG_STAGE_X[stageIdx];
   const pos = channelWorldPos(stageIdx);
-  const portX = pos.x - pos.length * 0.42;
-  const portZ = pos.z + 0.14;
+  // Each port sits just upstream of its stage and just below its own tube's
+  // outer wall — so S1 (largest tube) has the lowest port, S3 (innermost
+  // tube) has the highest port, color-coded by stage.
+  const portX = nx(stg.xStart) - 0.03;
+  const portZ = pos.z + pos.radius + 0.07;
   return (
-    <group position={[portX, pos.y, portZ]}>
+    <group position={[portX, 0, portZ]}>
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[0.035, 0.035, 0.16, 16]} />
         <meshStandardMaterial
@@ -390,24 +423,17 @@ interface StorageChamberProps {
   storedParticles: ReadonlyArray<StoredParticleLike>;
 }
 
-// Horizontal-cylinder storage along the bore axis, downstream of the channels.
-// The three extraction channels each terminate above this chamber via a short
-// drop chute that color-codes back to its source stage.
-const STORAGE_X_CENTER = 1.20;
-const STORAGE_Z_CENTER = 1.10;
-const STORAGE_RADIUS = 0.22;
+// Coaxial storage chamber — sits on the SAME axis as the concentric tube
+// bundle (Y=0, Z=BUNDLE_AXIS_Z), immediately downstream of the channels.
+// The three nested tubes therefore empty directly into this chamber without
+// needing any drop chutes — the chamber wall is the natural extension of
+// the bundle's outer envelope.
 const STORAGE_LENGTH = 0.55;
-const STORAGE_X_LEFT = STORAGE_X_CENTER - STORAGE_LENGTH / 2;   // 0.925
-const STORAGE_X_RIGHT = STORAGE_X_CENTER + STORAGE_LENGTH / 2;  // 1.475
-
-// Z at which the cylindrical chamber wall sits, as a function of off-axis Y.
-// Used to terminate each drop chute exactly at the chamber surface so the
-// three feeds visually connect rather than floating above the chamber.
-function chamberTopZ(y: number): number {
-  const r2 = STORAGE_RADIUS * STORAGE_RADIUS - y * y;
-  if (r2 <= 0) return STORAGE_Z_CENTER;
-  return STORAGE_Z_CENTER - Math.sqrt(r2);
-}
+const STORAGE_X_LEFT = CHANNEL_X_END;                       // 0.828
+const STORAGE_X_RIGHT = STORAGE_X_LEFT + STORAGE_LENGTH;    // 1.378
+const STORAGE_X_CENTER = (STORAGE_X_LEFT + STORAGE_X_RIGHT) / 2;
+const STORAGE_Z_CENTER = BUNDLE_AXIS_Z;                     // coaxial
+const STORAGE_RADIUS = 0.20;
 
 function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
   const clampedFill = Math.max(0, Math.min(1, fill));
@@ -424,12 +450,13 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
       const c = ((i * 6781 + 21379) % 233280) / 233280;
       const angle = a * Math.PI * 2;
       const radius = Math.sqrt(b) * STORAGE_RADIUS * 0.82;
-      // Settle particles toward the bottom of the horizontal chamber (high z).
+      // Settle particles toward the chamber floor (positive Z side of axis).
       const yOff = Math.cos(angle) * radius;
-      const zOff = Math.abs(Math.sin(angle)) * radius;
+      const zOff = Math.sin(angle) * radius;
+      const zBiased = zOff > 0 ? zOff : zOff * 0.35;
       const x = STORAGE_X_LEFT + c * Math.max(fillLength, STORAGE_LENGTH * 0.15);
       arr.push({
-        pos: [x, yOff, STORAGE_Z_CENTER + zOff * 0.7],
+        pos: [x, yOff, STORAGE_Z_CENTER + zBiased],
         rgb: speciesColor(p.species),
         size: diameterToWorldSize(p.d_p_um) * 0.6,
       });
@@ -439,36 +466,7 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
 
   return (
     <group>
-      {/* Per-stage drop chutes — feed each channel's downstream end into the
-          storage chamber.  Color-coded to source stage so the chamber's
-          inlets are visibly tied back to S1/S2/S3. */}
-      {([0, 1, 2] as const).map((stageIdx) => {
-        const pos = channelWorldPos(stageIdx);
-        const stg = SVG_STAGE_X[stageIdx];
-        const zTop = pos.z + 0.025;
-        const zBot = chamberTopZ(pos.y);
-        const len = zBot - zTop;
-        if (len <= 0.01) return null;
-        const zCenter = (zTop + zBot) / 2;
-        return (
-          <mesh
-            key={stageIdx}
-            rotation={[Math.PI / 2, 0, 0]}
-            position={[CHANNEL_X_END, pos.y, zCenter]}
-          >
-            <cylinderGeometry args={[0.038, 0.038, len, 12]} />
-            <meshStandardMaterial
-              color={stg.color}
-              emissive={stg.color}
-              emissiveIntensity={0.25}
-              metalness={0.6}
-              roughness={0.4}
-            />
-          </mesh>
-        );
-      })}
-
-      {/* Transparent outer shell — horizontal cylinder along X axis */}
+      {/* Transparent outer shell — coaxial with the channel bundle */}
       <mesh rotation={[0, 0, Math.PI / 2]} position={[STORAGE_X_CENTER, 0, STORAGE_Z_CENTER]}>
         <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, STORAGE_LENGTH, 32, 1, true]} />
         <meshPhysicalMaterial
@@ -484,10 +482,11 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
         />
       </mesh>
 
-      {/* Left cap (housing-attached end) */}
+      {/* Left cap (bundle-side) — open central window so the three nested
+          tubes visibly empty into the chamber through it. */}
       <mesh rotation={[0, 0, Math.PI / 2]} position={[STORAGE_X_LEFT, 0, STORAGE_Z_CENTER]}>
-        <cylinderGeometry args={[STORAGE_RADIUS, STORAGE_RADIUS, 0.04, 32]} />
-        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.3} />
+        <ringGeometry args={[CHANNEL_OUTER_RADII[0] + 0.005, STORAGE_RADIUS, 32]} />
+        <meshStandardMaterial color="#475569" metalness={0.85} roughness={0.3} side={THREE.DoubleSide} />
       </mesh>
 
       {/* Right cap (removable end — accented slightly to read as detachable) */}
@@ -496,9 +495,7 @@ function StorageChamber({ fill, storedParticles }: StorageChamberProps) {
         <meshStandardMaterial color="#64748B" metalness={0.85} roughness={0.25} />
       </mesh>
 
-      {/* Fill volume — translucent water column inside the chamber.  Renders
-          as a smaller-radius concentric cylinder along the chamber axis,
-          length proportional to storageFill. */}
+      {/* Fill volume — translucent water column inside the chamber */}
       {fillLength > 0.001 && (
         <mesh rotation={[0, 0, Math.PI / 2]} position={[fillCenterX, 0, STORAGE_Z_CENTER]}>
           <cylinderGeometry args={[STORAGE_RADIUS * 0.92, STORAGE_RADIUS * 0.92, fillLength, 32]} />
@@ -705,12 +702,20 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
     let status: ParticlePoint['status'];
 
     if (captureStage !== -1 && phase > STAGE_APEX_PHASES[captureStage]) {
-      // CAPTURED — position directly in world coords inside the extraction channel
+      // CAPTURED — placed inside this stage's annular layer of the concentric
+      // tube bundle.  Radial position drawn from [innerRadius, outerRadius]
+      // (with sqrt area-correction), angle distributed around the bundle axis.
       const ch = channelWorldPos(captureStage as 0 | 1 | 2);
       const inChannel = (Math.sin(seed * 2.7) + 1) * 0.5;
-      wx = ch.x - ch.length * 0.45 + inChannel * ch.length * 0.9;
-      wy = ch.y + 0.04 + (Math.sin(i * 5.3) * 0.5 + 0.5) * 0.018;
-      wz = ch.z + (Math.cos(seed * 4.1) * 0.5) * 0.05;
+      const angle = seed * 0.79;
+      const rFrac = (Math.cos(seed * 4.1) + 1) * 0.5;        // [0, 1]
+      const r = Math.sqrt(
+        ch.innerRadius * ch.innerRadius
+          + rFrac * (ch.radius * ch.radius - ch.innerRadius * ch.innerRadius)
+      );
+      wx = ch.x - ch.length * 0.46 + inChannel * ch.length * 0.92;
+      wy = r * Math.cos(angle);
+      wz = ch.z + r * Math.sin(angle);
       status = 'captured';
 
       const capturePhaseAge = phase - STAGE_APEX_PHASES[captureStage];
@@ -959,7 +964,7 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
         />
 
         <OrbitControls
-          target={[0.3, 0, 0.3]}
+          target={[0.2, 0, 0.5]}
           enablePan={false}
           minDistance={1.6}
           maxDistance={7}
