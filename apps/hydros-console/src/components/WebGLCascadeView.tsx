@@ -974,43 +974,24 @@ function generateRealisticParticles(
     // opening so it gets caught primarily at that stage, with a small
     // fraction of upstream + downstream leakage to mimic real-world
     // imperfection.
-    const captureRoll = (Math.sin(seed * 1.3 + 0.7) + 1) * 0.5;
-    // Per-stage efficiency multipliers — when the backend reports a depleted
-    // etaS (e.g. mid-flush, post-clog), fewer particles get captured at that
-    // stage and more flow downstream / pass through.  Pre-RUN these default
-    // to 1.0 so the synthetic baseline is unchanged.
-    const e0 = drive?.etaS[0] ?? 1.0;
-    const e1 = drive?.etaS[1] ?? 1.0;
-    const e2 = drive?.etaS[2] ?? 1.0;
-    let captureStage = -1;
+    // Capture fate is DETERMINISTIC by particle size vs each stage's mesh
+    // opening.  The mesh fabric physically blocks any particle larger than
+    // its opening — etaS / fouling modulate HOW the captured particle
+    // behaves (on-mesh density vs apex-collection split), not WHETHER
+    // capture happens.  An 800 µm particle CANNOT pass through a 500 µm
+    // mesh regardless of stage efficiency.
+    //   PP  800 µm > S1 mesh 500 µm  → caught at S1
+    //   PE  200 µm > S2 mesh 100 µm  → passes S1 (200<500), caught at S2
+    //   PET  25 µm > S3 mesh   5 µm  → passes S1+S2 (25<500, 25<100), caught at S3
+    let captureStage: 0 | 1 | 2;
     if (sizeClass === 2) {
-      // PP 800µm — S1 catches it (only mesh with opening < 800)
-      const p1 = 0.93 * e0;
-      const p2 = p1 + 0.04 * e1;
-      const p3 = p2 + 0.02 * e2;
-      if (captureRoll < p1)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < p2) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < p3) { captureStage = 2; fateDistribution[2]++; }
-      else                        { fateDistribution[3]++; }
+      captureStage = 0;
     } else if (sizeClass === 1) {
-      // PE 200µm — passes S1 (200<500), caught at S2 (200>100)
-      const p1 = 0.02 * e0;
-      const p2 = p1 + 0.92 * e1;
-      const p3 = p2 + 0.04 * e2;
-      if (captureRoll < p1)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < p2) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < p3) { captureStage = 2; fateDistribution[2]++; }
-      else                        { fateDistribution[3]++; }
+      captureStage = 1;
     } else {
-      // PET 25µm — passes S1+S2, caught at S3 (25>5)
-      const p1 = 0.005 * e0;
-      const p2 = p1 + 0.025 * e1;
-      const p3 = p2 + 0.93 * e2;
-      if (captureRoll < p1)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < p2) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < p3) { captureStage = 2; fateDistribution[2]++; }
-      else                        { fateDistribution[3]++; }
+      captureStage = 2;
     }
+    fateDistribution[captureStage]++;
 
     // phase advances from 0 at spawn — particle enters at the inflow (phase=0)
     // and traverses the reactor over time, NOT randomly distributed at t=0.
@@ -1019,7 +1000,7 @@ function generateRealisticParticles(
     let wx: number, wy: number, wz: number;
     let status: ParticlePoint['status'];
 
-    if (captureStage !== -1 && phase > STAGE_APEX_PHASES[captureStage]) {
+    if (phase > STAGE_APEX_PHASES[captureStage]) {
       // CAPTURED — split across three locations: ON MESH WALL (fouling load),
       // IN EJECTION PIPE (apex → channel transit), IN CHANNEL (settled load).
       // State-driven thresholds:
@@ -1100,9 +1081,7 @@ function generateRealisticParticles(
 
       // Cone envelope radius at this localPhase — same cubic Bezier used by
       // buildBezierConeProfile, so the particle is constrained to stay
-      // INSIDE the visible cone wall.  A particle's center can never be on
-      // the downstream side of the mesh: it's clamped to coneEnvR minus its
-      // own visual size minus a small padding.
+      // INSIDE the visible cone wall.
       const baseRCone = 0.52;
       const apexRCone = [0.10, 0.075, 0.05][stageIdx];
       const uBz = 1 - localPhase;
@@ -1114,22 +1093,37 @@ function generateRealisticParticles(
       const particleSize = diameterToWorldSize(d_p_um);
       const maxParticleR = Math.max(0.04, coneEnvR * 0.92 - particleSize);
 
-      // EVERY particle funnels toward the apex node — the cone interior is
-      // the only flow path, the mesh is at its wall, and the apex is where
-      // flow concentrates physically.  Pass-through particles still converge
-      // to the apex; they simply slip through the mesh openings there and
-      // continue downstream to the next stage's base.  Without this, the
-      // pass-through population skips the cone interior entirely and forms
-      // a visible column along the unsheared bore axis — geometrically
-      // unrelated to the visible cones.
+      // Two distinct flow behaviours depending on whether THIS stage's mesh
+      // retains the particle.  Physics is mesh-opening vs particle-diameter:
+      //   * larger than this mesh's openings  → trapped, funnels toward the
+      //     apex node (the visible "capture node" where the electric field
+      //     pulls the captured load and the ejection pipe sends it out)
+      //   * smaller than this mesh's openings → phases through the mesh
+      //     wall anywhere along the cone surface; never visits the apex
+      //     node, never leaves through the channel — flows straight along
+      //     the bore toward the next stage's wide base entry.
+      const willCaptureHere = (captureStage === stageIdx);
       const apexPullStrength = Math.max(0, (localPhase - 0.35) / 0.65);
       const constrainedR = Math.min(baseR, maxParticleR);
-      const r = constrainedR * (1 - apexPullStrength * 0.92);
-      // All particles follow the sheared cone axis so they trace the visible
-      // funnel.  zConeAxis ramps 0 → SHEAR_Z across each stage, then resets
-      // at the next stage's base — the small Z-jog at the stage boundary
-      // reads as flow being re-centered as it enters the next funnel.
-      const zConeAxis = localPhase * SHEAR_Z;
+
+      let r: number;
+      let zConeAxis: number;
+      if (willCaptureHere) {
+        // Large-for-this-mesh particles converge to the apex node — full
+        // apex pull, clamped inside the cone envelope, follows the sheared
+        // cone axis so it arrives at the visible capture node.
+        r = constrainedR * (1 - apexPullStrength * 0.92);
+        zConeAxis = localPhase * SHEAR_Z;
+      } else {
+        // Small-for-this-mesh particles flow straight along the bore axis
+        // at their natural radius and Z=0.  They visibly enter the cone at
+        // its wide base, then phase through the mesh wall as the cone tilts
+        // and narrows toward apex — no apex convergence, no leak from the
+        // node, no teleport at the stage boundary because Z stays at 0 and
+        // r stays at baseR throughout the stage and into the next.
+        r = baseR;
+        zConeAxis = 0;
+      }
 
       wx = nx(xSvg);
       wy = r * Math.cos(angle);
@@ -1153,6 +1147,105 @@ function generateRealisticParticles(
   }
 
   return { particles, flashAges, worldPositions, fateDistribution };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Water flow — continuous bore-axis liquid stream, independent of MP
+// ─────────────────────────────────────────────────────────────────────────
+// A translucent light-blue cylinder along the bore axis running from just
+// inside the inlet to just past the outlet, with animated flow streaks
+// scrolling left → right in the fragment shader.  Reads as a continuous
+// liquid flow — NOT discrete droplets — independent of the MP capture
+// behaviour.
+
+interface WaterFlowProps {
+  active: boolean;
+  playbackTime?: number;
+  isPlaying?: boolean;
+  speedMultiplier?: number;
+}
+
+function WaterFlow({
+  active,
+  playbackTime = 0,
+  isPlaying = false,
+  speedMultiplier = 1,
+}: WaterFlowProps) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  const timeAnchor = useRef({ pbTime: 0, wallTime: 0 });
+
+  const material = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 },
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform float time;
+          varying vec2 vUv;
+          void main() {
+            // Light sky-blue water tone
+            vec3 waterColor = vec3(0.62, 0.86, 1.0);
+            // Two superimposed flowing-streak frequencies scrolling along the
+            // cylinder's axis (vUv.x runs from 0 at inlet to 1 at outlet).
+            float flow1 = sin(vUv.x * 11.0 - time * 1.6) * 0.5 + 0.5;
+            float flow2 = sin(vUv.x * 24.0 - time * 2.3 + 1.0) * 0.5 + 0.5;
+            float streak = flow1 * 0.55 + flow2 * 0.45;
+            // Soft fade at the radial edges of the cylinder (vUv.y wraps
+            // around the circumference) so the column doesn't read as a
+            // hard tube — instead a soft glowing column of water.
+            float edgeFade = sin(vUv.y * 3.14159) * 0.7 + 0.3;
+            float alpha = (0.20 + streak * 0.18) * edgeFade;
+            gl_FragColor = vec4(waterColor, alpha);
+          }
+        `,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    [],
+  );
+
+  useFrame(({ clock }) => {
+    if (!meshRef.current) return;
+    meshRef.current.visible = active;
+    if (!active) return;
+
+    if (playbackTime !== timeAnchor.current.pbTime) {
+      timeAnchor.current = { pbTime: playbackTime, wallTime: clock.elapsedTime };
+    }
+    const smoothT = isPlaying
+      ? timeAnchor.current.pbTime
+          + (clock.elapsedTime - timeAnchor.current.wallTime) * speedMultiplier
+      : playbackTime;
+
+    const mat = meshRef.current.material as THREE.ShaderMaterial;
+    if (mat?.uniforms?.time) {
+      mat.uniforms.time.value = smoothT;
+    }
+  });
+
+  // Cylinder oriented along the world X axis (default lathe Y → X via
+  // rotation around Z by π/2).  Length 2.8 spans from x≈-1.4 (just inside
+  // the inlet nozzle at world x=-1.4) to x≈+1.4 (the outlet nozzle).
+  // Thin radius (0.075) reads as a stream of water, not a fat column.
+  return (
+    <mesh
+      ref={meshRef}
+      rotation={[0, 0, Math.PI / 2]}
+      position={[0, 0, 0]}
+      material={material}
+    >
+      <cylinderGeometry args={[0.075, 0.075, 2.8, 24, 8, true]} />
+    </mesh>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1455,6 +1548,13 @@ export default function WebGLCascadeView({
           isPlaying={isPlaying}
           speedMultiplier={speedMultiplier}
           onFateUpdate={setFateDist}
+        />
+
+        <WaterFlow
+          active={scenarioActive}
+          playbackTime={playbackTime}
+          isPlaying={isPlaying}
+          speedMultiplier={speedMultiplier}
         />
 
         <OrbitControls
