@@ -786,7 +786,16 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
   const worldPositions = new Float32Array(count * 3);
   const fateDistribution: [number, number, number, number] = [0, 0, 0, 0];  // S1, S2, S3, passthrough
   const species = ['PET', 'PE', 'PP'];
-  const sizes = [5, 100, 500];
+  // Particle diameters chosen JUST ABOVE each stage's mesh opening
+  // (S1=500µm, S2=100µm, S3=5µm — per hydrion/physics/m5/capture_rt.py).
+  // Per the backend's _is_rt_captured rule, only particles LARGER than the
+  // mesh opening get retained, so each species gets caught at its intended
+  // stage and only nano-fines (< S3 opening) would pass through.
+  //
+  //   PP  800 µm > S1 (500) → caught at S1
+  //   PE  200 µm > S2 (100) → passes S1 (200<500), caught at S2
+  //   PET  25 µm > S3 (5)   → passes S1 + S2, caught at S3
+  const sizes = [25, 200, 800];
 
   for (let i = 0; i < count; i++) {
     const seed = i * 7331.7;
@@ -798,29 +807,31 @@ function generateRealisticParticles(count: number, t: number): SyntheticOutput {
     const d_p_um = sizes[sizeClass];
     const spec = species[sizeClass];
 
-    // Size-dependent capture fate.  Coarse mesh (S1) catches the biggest
-    // particles, fine mesh (S3) is the last line for small ones, and the
-    // smallest (PET 5µm) mostly slips through every mesh — accurate to the
-    // real-world filter cascade.
+    // Size-dependent capture fate, matching the backend cascade rule
+    // (each mesh retains anything LARGER than its opening; smaller particles
+    // pass through).  Each species is sized just above its target stage's
+    // opening so it gets caught primarily at that stage, with a small
+    // fraction of upstream + downstream leakage to mimic real-world
+    // imperfection.
     const captureRoll = (Math.sin(seed * 1.3 + 0.7) + 1) * 0.5;
     let captureStage = -1;
     if (sizeClass === 2) {
-      // PP 500µm — coarse mesh dominates
-      if (captureRoll < 0.75)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < 0.92) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < 0.97) { captureStage = 2; fateDistribution[2]++; }
+      // PP 800µm — S1 catches it (only mesh with opening < 800)
+      if (captureRoll < 0.93)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < 0.97) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < 0.99) { captureStage = 2; fateDistribution[2]++; }
       else                          { fateDistribution[3]++; }
     } else if (sizeClass === 1) {
-      // PE 100µm — medium mesh dominates
-      if (captureRoll < 0.10)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < 0.60) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < 0.85) { captureStage = 2; fateDistribution[2]++; }
+      // PE 200µm — passes S1 (200<500), caught at S2 (200>100)
+      if (captureRoll < 0.02)      { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < 0.94) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < 0.98) { captureStage = 2; fateDistribution[2]++; }
       else                          { fateDistribution[3]++; }
     } else {
-      // PET 5µm — smaller than the mesh openings, mostly passes through
-      if (captureRoll < 0.02)      { captureStage = 0; fateDistribution[0]++; }
-      else if (captureRoll < 0.08) { captureStage = 1; fateDistribution[1]++; }
-      else if (captureRoll < 0.25) { captureStage = 2; fateDistribution[2]++; }
+      // PET 25µm — passes S1+S2, caught at S3 (25>5)
+      if (captureRoll < 0.005)     { captureStage = 0; fateDistribution[0]++; }
+      else if (captureRoll < 0.03) { captureStage = 1; fateDistribution[1]++; }
+      else if (captureRoll < 0.96) { captureStage = 2; fateDistribution[2]++; }
       else                          { fateDistribution[3]++; }
     }
 
@@ -1066,7 +1077,7 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
   return (
     <div style={{ width: '100%', height: '100%', background: '#080D18', position: 'relative' }}>
       <Canvas
-        camera={{ position: [2.4, 1.1, 2.8], fov: 38 }}
+        camera={{ position: [1.8, 0.55, 1.95], fov: 42 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         dpr={[1, 2]}
       >
@@ -1187,12 +1198,12 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
       >
         <div style={{ color: '#94A3B8', marginBottom: 3 }}>PARTICLE SIZE LEGEND</div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span style={{ color: '#66B3FF' }}>● 5 µm PET</span>
-          <span style={{ color: '#4DD89D', fontSize: 12 }}>● 100 µm PE</span>
-          <span style={{ color: '#FA8033', fontSize: 14 }}>● 500 µm PP</span>
+          <span style={{ color: '#66B3FF' }}>● 25 µm PET</span>
+          <span style={{ color: '#4DD89D', fontSize: 12 }}>● 200 µm PE</span>
+          <span style={{ color: '#FA8033', fontSize: 14 }}>● 800 µm PP</span>
         </div>
         <div style={{ color: '#64748B', fontSize: 9, marginTop: 2 }}>
-          sqrt-mapped (100× physical · 10× visual)
+          PP&gt;S1 mesh (500µm), PE&gt;S2 (100µm), PET&gt;S3 (5µm)
         </div>
       </div>
     </div>
