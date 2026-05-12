@@ -742,6 +742,86 @@ function particleToWorld(p: ParticlePoint): [number, number, number] {
   return [nx(p.x), 0, nz(p.y)];
 }
 
+// Rich real-data positioning — applies the same cone-envelope clamping,
+// sheared-axis tracking, and pipe/channel placement that the synthetic
+// generator does, but driven by the backend's per-particle state instead
+// of generated values.  Without this, the RUN path collapses to a flat
+// nx/nz mapping and loses every realism improvement we've built.
+function computeRealParticleWorldPos(
+  p: ParticlePoint,
+  i: number,
+): [number, number, number] {
+  const xSvg = p.x;
+  const wx = nx(xSvg);
+
+  // Which stage cone is this particle inside?
+  let stageIdx: 0 | 1 | 2 = 0;
+  if (xSvg > 306) stageIdx = 1;
+  if (xSvg > 494) stageIdx = 2;
+  const stg = SVG_STAGE_X[stageIdx];
+  const localPhase = Math.max(0, Math.min(1, (xSvg - stg.xStart) / (stg.xEnd - stg.xStart)));
+
+  // Backend's r_norm derived from SVG y (CY=154 axis, ~244 bore wall).
+  const rNorm = Math.max(0, Math.min(1, (p.y - 154) / (244 - 154)));
+
+  // Captured particles → pipe or channel (mirror the synthetic captured path).
+  if (p.status === 'captured') {
+    const ch = channelWorldPos(stageIdx);
+    const apexX = nx(stg.apexX);
+    const seed = i * 7.91 + xSvg * 0.013;
+    const transitSeed = (Math.sin(seed) + 1) * 0.5;
+
+    if (transitSeed < 0.30) {
+      // In the ejection pipe between cone apex (z=SHEAR_Z) and channel z
+      const pipeT = (Math.cos(seed * 0.5) + 1) * 0.5;
+      return [
+        apexX + (Math.cos(seed * 0.7) * 0.5) * 0.018,
+        (Math.sin(seed * 0.8) * 0.5) * 0.018,
+        SHEAR_Z + pipeT * (ch.z - SHEAR_Z),
+      ];
+    }
+    // Settled in the long collection channel
+    const inChannel = (Math.sin(seed * 0.34) + 1) * 0.5;
+    return [
+      ch.x - ch.length * 0.46 + inChannel * ch.length * 0.92,
+      ch.y + (Math.sin(i * 0.66) * 0.5) * 0.030,
+      ch.z + (Math.cos(seed * 0.51) * 0.5) * 0.040,
+    ];
+  }
+
+  // In-transit or passed: flow through the cone interior, envelope-clamped.
+  const baseRCone = 0.52;
+  const apexRCone = [0.10, 0.075, 0.05][stageIdx];
+  const u = 1 - localPhase;
+  const coneEnvR =
+    u * u * u * baseRCone
+    + 3 * u * u * localPhase * baseRCone
+    + 3 * u * localPhase * localPhase * (baseRCone + apexRCone) * 0.55
+    + localPhase * localPhase * localPhase * apexRCone;
+  const particleSize = diameterToWorldSize(p.d_p_um);
+  const maxParticleR = Math.max(0.04, coneEnvR * 0.92 - particleSize);
+
+  // Backend's r_norm scaled to the cone envelope (0=axis, 1=wall) and
+  // clamped so the particle's center stays inside the mesh wall.
+  const targetR = rNorm * coneEnvR * 0.9;
+  const r = Math.min(targetR, maxParticleR);
+
+  // Stable per-particle angle so the 2D-axisymmetric backend physics fans
+  // out into a full 3D distribution around the cone axis.
+  const angle = i * 0.97;
+
+  // Cone axis tilt (matches the shear we applied to the cone geometry):
+  // captured particles are already handled above, so this is for the
+  // visible in-transit flow — they ride with the cone interior.
+  const zConeAxis = localPhase * SHEAR_Z * (p.status === 'in_transit' ? 1.0 : 0.55);
+
+  return [
+    wx,
+    r * Math.cos(angle),
+    r * Math.sin(angle) + zConeAxis,
+  ];
+}
+
 // PP / PE / PET species → RGB color [0, 1]
 function speciesColor(species: string): [number, number, number] {
   switch (species) {
@@ -1009,12 +1089,13 @@ function ParticleField({ realParticles, capacity, syntheticMode, onFateUpdate }:
         iPosition[i * 3 + 1] = activeWorldPositions[i * 3 + 1];
         iPosition[i * 3 + 2] = activeWorldPositions[i * 3 + 2];
       } else {
-        // Real-data mode: map SVG-coord particles through nx/nz with bore-radius scaling
-        const [wx, , wz] = particleToWorld(p);
+        // Real-data mode: route the backend particle through the same rich
+        // positioning logic as synthetic — cone-envelope clamping,
+        // sheared-axis tracking, status-based pipe/channel placement.
+        const [wx, wy, wz] = computeRealParticleWorldPos(p, i);
         iPosition[i * 3 + 0] = wx;
-        iPosition[i * 3 + 1] = Math.sin(i * 7.31 + clock.elapsedTime * 0.6) * 0.10;
-        // Scale wz to fit within housing radius (0.62)
-        iPosition[i * 3 + 2] = wz * 0.55;
+        iPosition[i * 3 + 1] = wy;
+        iPosition[i * 3 + 2] = wz;
       }
 
       iSize[i] = diameterToWorldSize(p.d_p_um);
@@ -1070,7 +1151,28 @@ export default function WebGLCascadeView({ state }: WebGLCascadeViewProps) {
   const realParticles = useMemo(() => {
     const streams = state?.particleStreams;
     if (!streams) return [];
-    return [...streams.s1, ...streams.s2, ...streams.s3];
+    // Include the per-stage deposited streams so each channel visibly carries
+    // its accumulated capture load (previously these were dropped from the
+    // 3D render and only the in-transit tracers were shown).  The mapDeposited
+    // function places each deposited particle's xSvg inside its stage's
+    // xStart→apexX range, so the stage inference in
+    // computeRealParticleWorldPos picks them up correctly.
+    const asCaptured = (deps: { x: number; species: string; d_p_um: number }[]): ParticlePoint[] =>
+      deps.map(d => ({
+        x: d.x,
+        y: 280,           // placeholder; the captured branch uses channelWorldPos directly
+        species: d.species,
+        d_p_um: d.d_p_um,
+        status: 'captured' as const,
+      }));
+    return [
+      ...streams.s1,
+      ...streams.s2,
+      ...streams.s3,
+      ...asCaptured(streams.s1Deposited),
+      ...asCaptured(streams.s2Deposited),
+      ...asCaptured(streams.s3Deposited),
+    ];
   }, [state?.particleStreams]);
 
   const hasRealData = realParticles.length > 0;
